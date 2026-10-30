@@ -1,0 +1,22 @@
+{
+  "name": "classlive-server",
+  "version": "1.0.0",
+  "description": "WebSocket Server for ClassLive Pro (RFC 6455)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "test": "node tests/load-test.js"
+  },
+  "keywords": [
+    "websocket",
+    "rfc6455",
+    "realtime",
+    "classlive"
+  ],
+  "author": "Nhóm 3",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
