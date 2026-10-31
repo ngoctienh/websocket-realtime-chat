@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node tests/load-test.js"
+    "test": "node --test tests/protocol.test.js",
+    "load-test": "node tests/load-test.js",
+    "check": "node -c src/index.js && npm test && npm run load-test"
   },
   "keywords": [
     "websocket",
@@ -14,7 +16,7 @@
     "realtime",
     "classlive"
   ],
-  "author": "Nhóm 3",
+  "author": "Nhóm 3 - Tiến (Backend)",
   "license": "MIT",
   "dependencies": {
     "ws": "^8.18.0"
