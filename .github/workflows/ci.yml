@@ -2,24 +2,32 @@ name: ClassLive Pro CI
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches: [ main, master, develop, backend ]
   pull_request:
     branches: [ main, master ]
 
 jobs:
-  backend-check:
+  backend-test-and-load:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
+      - name: Setup Node.js 20 LTS
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
 
-      - name: Check server syntax & dependencies
+      - name: Install backend dependencies
+        working-directory: ./server
+        run: npm install
+
+      - name: Check syntax & Run RFC 6455 Protocol Integration Tests
+        working-directory: ./server
         run: |
-          cd server
-          npm install
           node -c src/index.js
+          npm test
+
+      - name: Run 100 Concurrent WebSocket Connections Load Test
+        working-directory: ./server
+        run: npm run load-test
