@@ -302,6 +302,19 @@ function createClassLiveServer(options = {}) {
       timerManager.getSyncPayload(roomCode),
       roomCode
     );
+
+    // Đồng bộ câu hỏi & biểu đồ sẵn có nếu màn hình Projector mở hoặc F5 giữa chừng
+    if (ws.role === 'projector' && snapshot) {
+      if (Array.isArray(snapshot.questions) && snapshot.questions.length > 0) {
+        const chronological = [...snapshot.questions].reverse();
+        for (const q of chronological) {
+          sendToClient(ws, MessageTypes.QUESTION_BROADCAST, q, roomCode);
+        }
+      }
+      if (snapshot.settings?.resultPublished && snapshot.ratingSummary) {
+        sendToClient(ws, MessageTypes.RATING_SUMMARY, snapshot.ratingSummary, roomCode);
+      }
+    }
   }
 
   wss.on('connection', (ws, req) => {
@@ -593,15 +606,13 @@ function createClassLiveServer(options = {}) {
           return sendError(ws, rateRes.code, rateRes.error);
         }
 
-        sendToClient(
-          ws,
-          MessageTypes.RATING_SUBMITTED,
-          {
-            isUpdate: rateRes.isUpdate,
-            scores: rCheck.data.scores
-          },
-          ws.currentRoom
-        );
+        const ackPayload = {
+          isUpdate: rateRes.isUpdate,
+          scores: rCheck.data.scores
+        };
+
+        sendToClient(ws, MessageTypes.RATING_SUBMITTED, ackPayload, ws.currentRoom);
+        sendToClient(ws, MessageTypes.RATING_SUCCESS, ackPayload, ws.currentRoom);
 
         const room = roomManager.getRoom(ws.currentRoom);
         const targetRoles = room.settings.resultPublished ? null : ['host'];
@@ -635,12 +646,19 @@ function createClassLiveServer(options = {}) {
         }
 
         let updates = {};
+        const explicitOpen =
+          typeof payload.open === 'boolean'
+            ? payload.open
+            : typeof payload.enabled === 'boolean'
+              ? payload.enabled
+              : undefined;
+
         if (type === MessageTypes.QUESTION_TOGGLE) {
           updates.qnaOpen =
-            typeof payload.open === 'boolean' ? payload.open : !room.settings.qnaOpen;
+            explicitOpen !== undefined ? explicitOpen : !room.settings.qnaOpen;
         } else if (type === MessageTypes.RATING_TOGGLE) {
           updates.ratingOpen =
-            typeof payload.open === 'boolean' ? payload.open : !room.settings.ratingOpen;
+            explicitOpen !== undefined ? explicitOpen : !room.settings.ratingOpen;
         } else if (type === MessageTypes.RATING_PUBLISH) {
           updates.resultPublished =
             typeof payload.published === 'boolean' ? payload.published : true;

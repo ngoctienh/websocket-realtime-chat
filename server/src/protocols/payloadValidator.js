@@ -226,6 +226,7 @@ function validateTimerControl(payload = {}) {
 
 /**
  * Kiểm tra dữ liệu khảo sát độ hài lòng thực tế (survey.submit)
+ * Hỗ trợ cả điểm số (1-5), nhãn tiếng Việt và mã mức độ từ UI Host (very_satisfied / satisfied / normal)
  */
 function validateSurveySubmit(payload = {}) {
   const labelMap = {
@@ -233,25 +234,42 @@ function validateSurveySubmit(payload = {}) {
     'hài lòng': 4,
     'bình thường': 3,
     'không hài lòng': 2,
-    'rất tệ': 1
+    'rất tệ': 1,
+    'very_satisfied': 5,
+    'satisfied': 4,
+    'normal': 3,
+    'unsatisfied': 2,
+    'very_unsatisfied': 1
+  };
+
+  const displayLabelMap = {
+    5: 'Rất hài lòng',
+    4: 'Hài lòng',
+    3: 'Bình thường',
+    2: 'Không hài lòng',
+    1: 'Rất tệ'
   };
 
   let rating = Number(payload.rating ?? payload.score);
+  if (!Number.isFinite(rating) && typeof payload.rating === 'string') {
+    rating = labelMap[payload.rating.trim().toLowerCase()];
+  }
   if (!Number.isFinite(rating) && typeof payload.level === 'string') {
-    rating = labelMap[payload.level.trim().toLowerCase()] || 5;
+    rating = labelMap[payload.level.trim().toLowerCase()];
   }
   if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
     rating = 5;
   }
 
+  const roundedRating = Math.round(rating);
   const comment = sanitizeString(payload.comment || payload.feedback || '', 500);
   const level = sanitizeString(payload.level || '', 50);
 
   return {
     valid: true,
     data: {
-      rating: Math.round(rating),
-      level: level || (rating >= 5 ? 'Rất hài lòng' : rating >= 4 ? 'Hài lòng' : 'Bình thường'),
+      rating: roundedRating,
+      level: level || displayLabelMap[roundedRating] || 'Bình thường',
       comment
     }
   };
