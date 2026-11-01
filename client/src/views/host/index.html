@@ -6,22 +6,33 @@
     <title>ClassLive Pro - Host Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
-<body class="bg-slate-100 p-6 min-h-screen flex justify-center items-center">
-    <div class="w-full max-w-2xl bg-white rounded-2xl shadow-xl border p-6 space-y-6">
+<body class="bg-slate-100 p-4 md:p-6 min-h-screen flex justify-center items-start">
+    <div class="w-full max-w-3xl bg-white rounded-2xl shadow-xl border p-6 space-y-6 my-4">
         
-        <div class="border-b pb-4">
-            <h1 class="text-xl font-extrabold text-slate-800">🎛️ Bảng Điều Khiển Host (Giảng Viên / Nhóm Trưởng)</h1>
-            <p class="text-xs text-slate-500 mt-0.5">Quản lý phiên hỏi đáp và điều phối màn hình chiếu thuyết trình</p>
+        <div class="border-b pb-4 flex flex-wrap items-center justify-between gap-2">
+            <div>
+                <h1 class="text-xl font-extrabold text-slate-800">🎛️ Bảng Điều Khiển Host (Giảng Viên / Nhóm Trưởng)</h1>
+                <p class="text-xs text-slate-500 mt-0.5">Quản lý phiên hỏi đáp, đồng hồ thuyết trình và công bố bảng điểm Rubric</p>
+            </div>
+            <div class="flex items-center space-x-2">
+                <span id="hostNetDot" class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                <span class="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-mono font-bold border border-indigo-100">Phòng PIN: <span id="hostPinLabel">4829</span></span>
+            </div>
         </div>
 
-        <div class="grid grid-cols-2 gap-4">
+        <!-- Thống kê nhanh Realtime -->
+        <div class="grid grid-cols-3 gap-4">
             <div class="p-4 bg-slate-50 rounded-xl border">
-                <span class="text-xs text-slate-500 font-medium">Số Sinh Viên Online</span>
-                <p id="onlineCount" class="text-2xl font-bold text-indigo-600 mt-1">1 / 50</p>
+                <span class="text-xs text-slate-500 font-medium">Thiết Bị Online</span>
+                <p id="onlineCount" class="text-2xl font-bold text-indigo-600 mt-1">1 / 100</p>
             </div>
             <div class="p-4 bg-slate-50 rounded-xl border">
-                <span class="text-xs text-slate-500 font-medium">Số Câu Hỏi Đang Chờ</span>
+                <span class="text-xs text-slate-500 font-medium">Câu Hỏi Đang Chờ</span>
                 <p id="activeQuestions" class="text-2xl font-bold text-slate-800 mt-1">0</p>
+            </div>
+            <div class="p-4 bg-slate-50 rounded-xl border">
+                <span class="text-xs text-slate-500 font-medium">Phiếu Đã Chấm Rubric</span>
+                <p id="ratingCount" class="text-2xl font-bold text-emerald-600 mt-1">0</p>
             </div>
         </div>
 
@@ -37,39 +48,54 @@
                 <button id="rubricToggleBtn" onclick="toggleFeature('rating', this)" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition">Đang Mở</button>
             </div>
 
-            <!-- Nút Công bố kết quả Rubric (Sửa type thành rating.publish) -->
+            <!-- Nút Công bố kết quả Rubric (rating.publish) -->
             <div class="p-4 border border-indigo-100 bg-indigo-50/60 rounded-xl flex justify-between items-center shadow-sm">
                 <div>
                     <h4 class="text-sm font-bold text-indigo-900">Công bố kết quả Rubric</h4>
-                    <p class="text-xs text-indigo-600">Bấm để bung biểu đồ tổng hợp điểm lên màn hình Projector</p>
+                    <p class="text-xs text-indigo-600">Bấm để bung biểu đồ cột tổng hợp điểm lên màn hình Projector</p>
                 </div>
                 <button onclick="publishResult()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow">
                     🚀 Mở Kết Quả
                 </button>
             </div>
 
-            <!-- Nút Bắt đầu/Tạm dừng Đồng hồ 15 phút (timer.control) -->
-            <div class="p-4 border border-emerald-100 bg-emerald-50/60 rounded-xl flex justify-between items-center shadow-sm">
+            <!-- Nút Bắt đầu / Tạm dừng / Đặt lại Đồng hồ 15 phút (timer.control) -->
+            <div class="p-4 border border-emerald-100 bg-emerald-50/60 rounded-xl flex flex-wrap justify-between items-center gap-3 shadow-sm">
                 <div>
-                    <h4 class="text-sm font-bold text-emerald-900">Điều khiển thời gian thuyết trình</h4>
-                    <p class="text-xs text-emerald-600">Bắt đầu hoặc tạm dừng đồng hồ đếm ngược trên Projector</p>
+                    <h4 class="text-sm font-bold text-emerald-900">Điều khiển thời gian thuyết trình (<span id="hostTimerReadout" class="font-mono">15:00</span>)</h4>
+                    <p class="text-xs text-emerald-600">Đồng bộ đếm ngược thời gian thực trên màn hình Projector</p>
                 </div>
-                <div class="space-x-2">
+                <div class="flex items-center space-x-2">
                     <button onclick="controlTimer('start')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition">▶ Bắt Đầu</button>
                     <button onclick="controlTimer('pause')" class="bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition">⏸ Tạm Dừng</button>
+                    <button onclick="controlTimer('reset')" class="bg-slate-600 hover:bg-slate-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition">🔄 Đặt Lại</button>
                 </div>
             </div>
         </div>
 
-        <!-- Khôi phục Form Khảo sát độ hài lòng (Bài 3) -->
-        <div class="border border-slate-200 p-4 rounded-xl space-y-3 bg-slate-50/50">
-            <h3 class="text-sm font-bold text-slate-800">📝 Khảo sát độ hài lòng thực tế (Số liệu cho Bài 3)</h3>
-            <div class="flex items-center space-x-6 text-xs font-medium text-slate-700">
-                <label class="cursor-pointer"><input type="radio" name="survey" value="very_satisfied" class="mr-1.5"> Rất hài lòng</label>
-                <label class="cursor-pointer"><input type="radio" name="survey" value="satisfied" class="mr-1.5"> Hài lòng</label>
-                <label class="cursor-pointer"><input type="radio" name="survey" value="normal" class="mr-1.5"> Bình thường</label>
+        <!-- Danh sách điều phối câu hỏi trực tiếp (Ghim / Đã trả lời / Xóa) -->
+        <div class="border border-slate-200 p-4 rounded-xl space-y-3 bg-slate-50/40">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-bold text-slate-800">💬 Điều phối câu hỏi sinh viên (Ghim / Đánh dấu đã trả lời)</h3>
+                <span class="text-[11px] text-slate-400">Cập nhật tự động</span>
             </div>
-            <button onclick="submitSurvey()" class="bg-slate-800 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition">Gửi Khảo Sát Thu Thập</button>
+            <div id="hostQuestionList" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+                <p class="text-xs text-slate-400 italic">Chưa có câu hỏi nào trong phòng...</p>
+            </div>
+        </div>
+
+        <!-- Form Khảo sát độ hài lòng người dùng thực tế (Số liệu cho Bài 3) -->
+        <div class="border border-slate-200 p-4 rounded-xl space-y-3 bg-slate-50/50">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <h3 class="text-sm font-bold text-slate-800">📝 Khảo sát độ hài lòng thực tế (Số liệu cho Bài 3)</h3>
+                <span id="surveyStatsLabel" class="text-xs text-indigo-600 font-semibold"></span>
+            </div>
+            <div class="flex flex-wrap items-center gap-6 text-xs font-medium text-slate-700">
+                <label class="cursor-pointer"><input type="radio" name="survey" value="very_satisfied" checked class="mr-1.5"> Rất hài lòng (5★)</label>
+                <label class="cursor-pointer"><input type="radio" name="survey" value="satisfied" class="mr-1.5"> Hài lòng (4★)</label>
+                <label class="cursor-pointer"><input type="radio" name="survey" value="normal" class="mr-1.5"> Bình thường (3★)</label>
+            </div>
+            <button onclick="submitSurvey()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3.5 py-1.5 rounded-lg transition">Gửi Khảo Sát Thu Thập</button>
         </div>
 
         <!-- Xuất file CSV/Excel qua API thật của Server -->
@@ -83,19 +109,38 @@
     <script>
         let ws = null;
         let seq = 1;
+        let currentPin = new URLSearchParams(window.location.search).get('pin') || '4829';
+        let hostToken = 'secret_token_123';
+        let hostQuestions = [];
+
+        function getBaseOrigin() {
+            if (!location.host || location.port === '5500' || location.port === '5173') {
+                const httpProto = location.protocol === 'https:' ? 'https:' : 'http:';
+                return `${httpProto}//${location.hostname || 'localhost'}:8080`;
+            }
+            return location.origin;
+        }
+
+        function getWsUrl() {
+            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            if (!location.host || location.port === '5500' || location.port === '5173') {
+                return `${wsProto}//${location.hostname || 'localhost'}:8080/ws`;
+            }
+            return `${wsProto}//${location.host}/ws`;
+        }
 
         function initWebSocket() {
-            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProto}//${location.host || 'localhost:8080'}/ws`;
-            ws = new WebSocket(wsUrl);
+            document.getElementById('hostPinLabel').textContent = currentPin;
+            ws = new WebSocket(getWsUrl());
 
             ws.onopen = () => {
+                document.getElementById('hostNetDot').className = 'w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse';
                 ws.send(JSON.stringify({
-                    type: "room.join",
-                    roomCode: "4829",
+                    type: 'room.join',
+                    roomCode: currentPin,
                     seq: seq++,
                     timestamp: Date.now(),
-                    payload: { role: "host", clientName: "Host Dashboard", hostToken: "secret_token_123" }
+                    payload: { role: 'host', clientName: 'Host Dashboard', hostToken: hostToken }
                 }));
             };
 
@@ -103,35 +148,125 @@
                 try {
                     const message = JSON.parse(event.data);
                     const { type, payload } = message;
-                    if (type === 'presence.update') {
-                        document.getElementById('onlineCount').textContent = `${payload.onlineCount} / 50`;
-                        document.getElementById('activeQuestions').textContent = payload.activeQuestions || 0;
+
+                    if (type === 'room.joined') {
+                        if (payload.hostToken) hostToken = payload.hostToken;
+                        if (payload.snapshot) {
+                            if (payload.snapshot.presence) updatePresenceUI(payload.snapshot.presence);
+                            if (payload.snapshot.settings) syncToggleButtons(payload.snapshot.settings);
+                            if (Array.isArray(payload.snapshot.questions)) {
+                                hostQuestions = payload.snapshot.questions;
+                                renderHostQuestions();
+                            }
+                        }
+                    } else if (type === 'presence.update') {
+                        updatePresenceUI(payload);
+                    } else if (type === 'room.settings') {
+                        syncToggleButtons(payload);
+                    } else if (type === 'question.broadcast') {
+                        if (!hostQuestions.some(q => q.id === payload.id)) {
+                            hostQuestions.unshift(payload);
+                        }
+                        renderHostQuestions();
+                    } else if (type === 'question.voted' || type === 'question.pin' || type === 'question.answered' || type === 'question.delete') {
+                        if (Array.isArray(payload.questions)) {
+                            hostQuestions = payload.questions;
+                            renderHostQuestions();
+                        }
+                    } else if (type === 'timer.sync') {
+                        const rem = Math.max(0, payload.duration - payload.elapsed);
+                        const m = String(Math.floor(rem / 60)).padStart(2, '0');
+                        const s = String(rem % 60).padStart(2, '0');
+                        document.getElementById('hostTimerReadout').textContent = `${m}:${s}`;
+                    } else if (type === 'survey.ack') {
+                        document.getElementById('surveyStatsLabel').textContent =
+                            `Điểm hài lòng TB: ${payload.averageSatisfaction}/5 (${payload.totalResponses} lượt)`;
+                    } else if (type === 'error') {
+                        alert(payload.message || 'Có lỗi xảy ra!');
                     }
-                } catch (e) { console.error("Lỗi parse JSON:", e); }
+                } catch (e) { console.error('Lỗi parse JSON:', e); }
             };
 
-            ws.onclose = () => setTimeout(initWebSocket, 3000);
+            ws.onclose = () => {
+                document.getElementById('hostNetDot').className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+                setTimeout(initWebSocket, 3000);
+            };
+        }
+
+        function updatePresenceUI(presence) {
+            document.getElementById('onlineCount').textContent = `${presence.onlineCount || 0} / 100`;
+            document.getElementById('activeQuestions').textContent = presence.activeQuestions || 0;
+            if (presence.totalRatings !== undefined) {
+                document.getElementById('ratingCount').textContent = presence.totalRatings;
+            }
+        }
+
+        function syncToggleButtons(settings) {
+            const qBtn = document.getElementById('qnaToggleBtn');
+            const rBtn = document.getElementById('rubricToggleBtn');
+            if (typeof settings.qnaOpen === 'boolean') {
+                qBtn.textContent = settings.qnaOpen ? 'Đang Mở' : 'Đã Khóa';
+                qBtn.className = settings.qnaOpen
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition';
+            }
+            if (typeof settings.ratingOpen === 'boolean') {
+                rBtn.textContent = settings.ratingOpen ? 'Đang Mở' : 'Đã Khóa';
+                rBtn.className = settings.ratingOpen
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition';
+            }
+        }
+
+        function renderHostQuestions() {
+            const container = document.getElementById('hostQuestionList');
+            if (!hostQuestions.length) {
+                container.innerHTML = `<p class="text-xs text-slate-400 italic">Chưa có câu hỏi nào trong phòng...</p>`;
+                return;
+            }
+            container.innerHTML = hostQuestions.map(q => `
+                <div class="bg-white p-3 rounded-xl border ${q.pinned ? 'border-amber-400' : 'border-slate-200'} flex items-center justify-between gap-2">
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center gap-1.5 text-[11px]">
+                            <span class="font-bold text-indigo-600">${escapeHtml(q.authorName || 'Ẩn danh')}</span>
+                            <span class="text-slate-400">• 👍 ${q.votes || 0}</span>
+                            ${q.pinned ? '<span class="text-amber-600 font-bold">📌 Ghim</span>' : ''}
+                            ${q.answered ? '<span class="text-emerald-600 font-bold">✅ Đã trả lời</span>' : ''}
+                        </div>
+                        <p class="text-xs text-slate-800 mt-0.5 ${q.answered ? 'line-through opacity-50' : ''}">${escapeHtml(q.content || q.text)}</p>
+                    </div>
+                    <div class="flex items-center gap-1 shrink-0">
+                        <button onclick="moderateQuestion('question.pin', '${q.id}')" title="Ghim câu hỏi" class="px-2 py-1 text-[11px] rounded bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 font-semibold">📌</button>
+                        <button onclick="moderateQuestion('question.answered', '${q.id}')" title="Đánh dấu đã trả lời" class="px-2 py-1 text-[11px] rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-semibold">✅</button>
+                        <button onclick="moderateQuestion('question.delete', '${q.id}')" title="Xóa câu hỏi" class="px-2 py-1 text-[11px] rounded bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-semibold">🗑️</button>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function moderateQuestion(type, questionId) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: type,
+                    roomCode: currentPin,
+                    seq: seq++,
+                    timestamp: Date.now(),
+                    payload: { questionId, hostToken }
+                }));
+            }
         }
 
         // Gửi gói tin toggle lên Server khi bấm khóa/mở
         function toggleFeature(featureName, btn) {
             const isOpen = btn.textContent === 'Đang Mở';
-            if (isOpen) {
-                btn.textContent = 'Đã Khóa';
-                btn.className = 'bg-rose-600 hover:bg-rose-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition';
-            } else {
-                btn.textContent = 'Đang Mở';
-                btn.className = 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-4 py-2 rounded-lg font-bold transition';
-            }
-
             if (ws && ws.readyState === WebSocket.OPEN) {
                 const type = featureName === 'question' ? 'question.toggle' : 'rating.toggle';
                 ws.send(JSON.stringify({
                     type: type,
-                    roomCode: "4829",
+                    roomCode: currentPin,
                     seq: seq++,
                     timestamp: Date.now(),
-                    payload: { enabled: !isOpen }
+                    payload: { enabled: !isOpen, hostToken }
                 }));
             }
         }
@@ -140,11 +275,11 @@
         function publishResult() {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    type: "rating.publish",
-                    roomCode: "4829",
+                    type: 'rating.publish',
+                    roomCode: currentPin,
                     seq: seq++,
                     timestamp: Date.now(),
-                    payload: {}
+                    payload: { published: true, hostToken }
                 }));
                 alert('Đã phát tín hiệu mở biểu đồ lên màn hình Projector!');
             } else { alert('Chưa kết nối tới WebSocket Server!'); }
@@ -154,11 +289,11 @@
         function controlTimer(action) {
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    type: "timer.control",
-                    roomCode: "4829",
+                    type: 'timer.control',
+                    roomCode: currentPin,
                     seq: seq++,
                     timestamp: Date.now(),
-                    payload: { action: action }
+                    payload: { action: action, hostToken }
                 }));
             }
         }
@@ -168,8 +303,8 @@
             if (!selected) { alert('Vui lòng chọn 1 mức độ hài lòng!'); return; }
             if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({
-                    type: "survey.submit",
-                    roomCode: "4829",
+                    type: 'survey.submit',
+                    roomCode: currentPin,
                     seq: seq++,
                     timestamp: Date.now(),
                     payload: { rating: selected.value }
@@ -178,12 +313,13 @@
             alert('Đã thu thập và lưu số liệu khảo sát độ hài lòng!');
         }
 
-        // Tải bảng điểm thật từ API của Server thay vì xuất dữ liệu mẫu cứng
+        // Tải bảng điểm thật từ API của Server
         function exportCSV() {
-            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const httpProtocol = wsProto === 'wss:' ? 'https:' : 'http:';
-            const hostIP = location.host || 'localhost:8080';
-            window.open(`${httpProtocol}//${hostIP}/api/rooms/4829/export.csv`);
+            window.open(`${getBaseOrigin()}/api/rooms/${currentPin}/export.csv`);
+        }
+
+        function escapeHtml(text) {
+            return text ? String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;') : '';
         }
 
         initWebSocket();

@@ -303,17 +303,9 @@ function createClassLiveServer(options = {}) {
       roomCode
     );
 
-    // Đồng bộ câu hỏi & biểu đồ sẵn có nếu màn hình Projector mở hoặc F5 giữa chừng
-    if (ws.role === 'projector' && snapshot) {
-      if (Array.isArray(snapshot.questions) && snapshot.questions.length > 0) {
-        const chronological = [...snapshot.questions].reverse();
-        for (const q of chronological) {
-          sendToClient(ws, MessageTypes.QUESTION_BROADCAST, q, roomCode);
-        }
-      }
-      if (snapshot.settings?.resultPublished && snapshot.ratingSummary) {
-        sendToClient(ws, MessageTypes.RATING_SUMMARY, snapshot.ratingSummary, roomCode);
-      }
+    // Đồng bộ biểu đồ điểm sẵn có nếu màn hình Projector mở hoặc F5 sau khi đã công bố kết quả
+    if (ws.role === 'projector' && snapshot?.settings?.resultPublished && snapshot.ratingSummary) {
+      sendToClient(ws, MessageTypes.RATING_SUMMARY, snapshot.ratingSummary, roomCode);
     }
   }
 
