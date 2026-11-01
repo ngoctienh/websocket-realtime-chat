@@ -29,6 +29,7 @@ module.exports = {
   // Chấm điểm Rubric (4 tiêu chí 1-5 sao)
   RATING_SUBMIT: 'rating.submit',
   RATING_SUBMITTED: 'rating.submitted', // Phản hồi riêng cho SV vừa chấm xong
+  RATING_SUCCESS: 'rating.success',     // Alias xác nhận thành công cho UI Student
   RATING_TOGGLE: 'rating.toggle',       // Host mở/khóa chấm
   RATING_PUBLISH: 'rating.publish',     // Host bấm nút "Công bố kết quả"
   RATING_SUMMARY: 'rating.summary',     // Phát kết quả tổng kết (biểu đồ)

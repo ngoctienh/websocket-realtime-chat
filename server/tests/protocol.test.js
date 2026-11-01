@@ -168,12 +168,14 @@ test('ClassLive Pro WebSocket Server - Kiểm thử toàn diện giao thức & n
       scores: { content: 5, presentation: 4, demo: 5, qa: 4 }
     });
     await sv1.waitFor(MessageTypes.RATING_SUBMITTED);
+    await sv1.waitFor(MessageTypes.RATING_SUCCESS);
 
     sv2.sendJson(MessageTypes.RATING_SUBMIT, {
       deviceId: 'sv_rate_2',
       scores: { content: 4, presentation: 4, demo: 5, qa: 5 }
     });
     await sv2.waitFor(MessageTypes.RATING_SUBMITTED);
+    await sv2.waitFor(MessageTypes.RATING_SUCCESS);
 
     // Host bấm "Công bố kết quả" -> Projector nhận ngay biểu đồ điểm trung bình
     hostWs.sendJson(MessageTypes.RATING_PUBLISH, { published: true });
@@ -229,5 +231,36 @@ test('ClassLive Pro WebSocket Server - Kiểm thử toàn diện giao thức & n
 
     hostWs.close();
     reconnectWs.close();
+  });
+
+  await t.test('6. Tương thích payload UI Host & Student (toggle enabled & survey string)', async () => {
+    const hostWs = await connectTestClient(`${baseWsUrl}/ws`);
+    hostWs.sendJson(MessageTypes.ROOM_JOIN, { role: 'host', hostToken }, roomPin);
+    await hostWs.waitFor(MessageTypes.ROOM_JOINED);
+
+    // Host khóa nhận câu hỏi bằng payload { enabled: false }
+    hostWs.sendJson(MessageTypes.QUESTION_TOGGLE, { enabled: false }, roomPin);
+    const qLocked = await hostWs.waitFor(
+      (m) => m.type === MessageTypes.ROOM_SETTINGS && m.payload.qnaOpen === false
+    );
+    assert.equal(qLocked.payload.qnaOpen, false);
+
+    // Host mở lại nhận câu hỏi bằng payload { enabled: true }
+    hostWs.sendJson(MessageTypes.QUESTION_TOGGLE, { enabled: true }, roomPin);
+    const qOpened = await hostWs.waitFor(
+      (m) => m.type === MessageTypes.ROOM_SETTINGS && m.payload.qnaOpen === true
+    );
+    assert.equal(qOpened.payload.qnaOpen, true);
+
+    // Khảo sát CSAT từ UI Host gửi chuỗi 'satisfied' (4) và 'normal' (3)
+    hostWs.sendJson(MessageTypes.SURVEY_SUBMIT, { rating: 'satisfied' }, roomPin);
+    const ack1 = await hostWs.waitFor(MessageTypes.SURVEY_ACK);
+    assert.equal(ack1.payload.averageSatisfaction, 4);
+
+    hostWs.sendJson(MessageTypes.SURVEY_SUBMIT, { rating: 'normal' }, roomPin);
+    const ack2 = await hostWs.waitFor(MessageTypes.SURVEY_ACK);
+    assert.equal(ack2.payload.averageSatisfaction, 3.5);
+
+    hostWs.close();
   });
 });
