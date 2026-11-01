@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClassLive Pro - Projector View</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Thư viện tạo mã QR tự động -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-6 flex flex-col justify-between font-sans">
+
+    <!-- Header: QR Code, Mã PIN và Đồng hồ đếm ngược -->
+    <header class="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl flex items-center justify-between backdrop-blur-md">
+        <div class="flex items-center space-x-6">
+            <!-- Khu vực hiển thị mã QR -->
+            <div class="bg-white p-2.5 rounded-xl shadow-inner flex items-center justify-center">
+                <div id="qrcode" class="w-28 h-28 flex items-center justify-center"></div>
+            </div>
+            <div>
+                <p class="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1">Quét mã QR để tham gia phòng</p>
+                <h1 class="text-3xl font-black text-indigo-400 tracking-wide font-mono">Mã PIN: <span id="roomPinDisplay">4829</span></h1>
+                <p id="roomStatusText" class="text-xs text-emerald-400 mt-1 font-medium">● Đang chờ kết nối máy chủ...</p>
+            </div>
+        </div>
+
+        <!-- Đồng hồ đếm ngược thời gian thuyết trình -->
+        <div class="text-right bg-slate-950/60 px-6 py-4 rounded-xl border border-slate-800">
+            <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold block mb-1">Thời gian trình bày</span>
+            <div id="timerDisplay" class="text-5xl font-black text-emerald-400 font-mono tracking-tight">15:00</div>
+        </div>
+    </header>
+
+    <!-- Main Content: Câu hỏi nổi bật & Biểu đồ Rubric -->
+    <main class="flex-1 my-6 flex flex-col gap-6">
+        <!-- Top câu hỏi chất vấn -->
+        <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-lg flex-1 flex flex-col">
+            <h2 class="text-lg font-bold text-slate-200 mb-4 flex items-center gap-2">
+                <span>🔥</span> Top Câu Hỏi Chất Vấn Nổi Bật
+            </h2>
+            <div id="topQuestionsList" class="space-y-3 overflow-y-auto max-h-[280px] pr-2 flex-1">
+                <p class="text-slate-500 text-sm italic">Chưa có câu hỏi nào...</p>
+            </div>
+        </section>
+
+        <!-- Biểu đồ tổng hợp điểm Rubric -->
+        <section class="bg-slate-900/60 border border-slate-800 rounded-2xl p-6 shadow-lg">
+            <h2 class="text-base font-bold text-slate-200 mb-4 text-center flex items-center justify-center gap-2">
+                <span>📊</span> BIỂU ĐỒ TỔNG HỢP ĐIỂM TRUNG BÌNH RUBRIC
+            </h2>
+            <div class="grid grid-cols-4 gap-4">
+                <div class="bg-slate-950/70 p-4 rounded-xl border border-slate-800 text-center">
+                    <span class="text-xs text-slate-400 font-medium block mb-1">1. Nội dung</span>
+                    <span id="avgContent" class="text-2xl font-bold text-indigo-400">0.0</span>
+                </div>
+                <div class="bg-slate-950/70 p-4 rounded-xl border border-slate-800 text-center">
+                    <span class="text-xs text-slate-400 font-medium block mb-1">2. Trình bày</span>
+                    <span id="avgPresentation" class="text-2xl font-bold text-indigo-400">0.0</span>
+                </div>
+                <div class="bg-slate-950/70 p-4 rounded-xl border border-slate-800 text-center">
+                    <span class="text-xs text-slate-400 font-medium block mb-1">3. Demo thực tế</span>
+                    <span id="avgDemo" class="text-2xl font-bold text-indigo-400">0.0</span>
+                </div>
+                <div class="bg-slate-950/70 p-4 rounded-xl border border-slate-800 text-center">
+                    <span class="text-xs text-slate-400 font-medium block mb-1">4. Hỏi đáp</span>
+                    <span id="avgQa" class="text-2xl font-bold text-indigo-400">0.0</span>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Script xử lý kết nối và giao diện -->
+    <script>
+        let ws = null;
+        let currentPin = '4829'; // Mã PIN mặc định ban đầu
+        let seq = 1;
+        let questions = [];
+
+        // 1. Tự động tạo mã QR trỏ thẳng về trang Student khi load trang
+        function generateStudentQRCode() {
+            const currentHost = window.location.hostname;
+            const currentPort = window.location.port;
+            
+            // Tự động thay thế thư mục hiện tại từ projector sang student trong đường dẫn URL
+            const pathSegments = window.location.pathname.split('/');
+            if (pathSegments.length >= 2) {
+                pathSegments[pathSegments.length - 2] = 'student';
+            }
+            const studentPath = pathSegments.join('/');
+            
+            // Xây dựng URL chuẩn xác cho điện thoại quét vào
+            const studentUrl = `${window.location.protocol}//${currentHost}${currentPort ? ':' + currentPort : ''}${studentPath}`;
+            
+            // Xóa QR cũ và render mã QR mới
+            document.getElementById("qrcode").innerHTML = "";
+            new QRCode(document.getElementById("qrcode"), {
+                text: studentUrl,
+                width: 110,
+                height: 110,
+                colorDark: "#0f172a",
+                colorLight: "#ffffff",
+                correctLevel: QRCode.CorrectLevel.M
+            });
+        }
+
+        // 2. Khởi tạo kết nối WebSocket với Server Backend ở cổng 8080
+        function initWebSocket(roomCode) {
+            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProto}//${location.hostname || 'localhost'}:8080/ws`;
+            ws = new WebSocket(wsUrl);
+
+            ws.onopen = () => {
+                document.getElementById('roomStatusText').textContent = "● Đã kết nối máy chủ Real-time";
+                // Gửi tín hiệu tham gia phòng với vai trò projector
+                ws.send(JSON.stringify({
+                    type: 'room.join',
+                    roomCode: roomCode,
+                    seq: seq++,
+                    timestamp: Date.now(),
+                    payload: { role: 'projector', clientName: 'Màn hình Projector' }
+                }));
+            };
+
+            ws.onclose = () => {
+                document.getElementById('roomStatusText').textContent = "● Mất kết nối, đang thử kết nối lại...";
+                setTimeout(() => initWebSocket(roomCode), 3000);
+            };
+
+            ws.onerror = () => {
+                document.getElementById('roomStatusText').textContent = "● Lỗi kết nối WebSocket!";
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const message = JSON.parse(event.data);
+                    handleServerMessage(message);
+                } catch (e) {
+                    console.error("Lỗi phân tích cú pháp JSON:", e);
+                }
+            };
+        }
+
+        // 3. Xử lý các gói tin phản hồi từ Server
+        function handleServerMessage(message) {
+            const { type, payload } = message;
+
+            if (type === 'room.joined') {
+                if (payload.roomCode) {
+                    currentPin = payload.roomCode;
+                    document.getElementById('roomPinDisplay').textContent = currentPin;
+                }
+                if (payload.snapshot && payload.snapshot.questions) {
+                    questions = payload.snapshot.questions;
+                    renderTopQuestions();
+                }
+            } else if (type === 'question.broadcast') {
+                // Thêm câu hỏi mới vào danh sách đầu bảng
+                questions.unshift(payload);
+                renderTopQuestions();
+            } else if (type === 'question.voted') {
+                const q = questions.find(item => item.id === payload.questionId);
+                if (q) {
+                    q.votes = payload.newVotes;
+                    // Sắp xếp lại theo số lượng vote giảm dần
+                    questions.sort((a, b) => b.votes - a.votes);
+                    renderTopQuestions();
+                }
+            } else if (type === 'timer.sync') {
+                updateTimerDisplay(payload.duration - payload.elapsed);
+            } else if (type === 'rating.summary') {
+                // Hiển thị kết quả điểm trung bình Rubric lên màn hình chiếu
+                if (payload.averages) {
+                    document.getElementById('avgContent').textContent = (payload.averages.content || 0).toFixed(1);
+                    document.getElementById('avgPresentation').textContent = (payload.averages.presentation || 0).toFixed(1);
+                    document.getElementById('avgDemo').textContent = (payload.averages.demo || 0).toFixed(1);
+                    document.getElementById('avgQa').textContent = (payload.averages.qa || 0).toFixed(1);
+                }
+            }
+        }
+
+        // 4. Cập nhật giao diện danh sách câu hỏi
+        function renderTopQuestions() {
+            const container = document.getElementById('topQuestionsList');
+            if (!questions || questions.length === 0) {
+                container.innerHTML = `<p class="text-slate-500 text-sm italic">Chưa có câu hỏi nào...</p>`;
+                return;
+            }
+
+            // Lọc và sắp xếp top câu hỏi nổi bật
+            const sorted = [...questions].sort((a, b) => (b.votes || 0) - (a.votes || 0)).slice(0, 5);
+
+            container.innerHTML = sorted.map(q => `
+                <div class="bg-slate-950/60 border border-slate-800 p-4 rounded-xl flex items-center justify-between gap-4">
+                    <div class="flex-1">
+                        <span class="text-xs font-bold text-indigo-400 block mb-1">${q.authorName || 'Ẩn danh'}</span>
+                        <p class="text-sm text-slate-200 leading-relaxed">${escapeHtml(q.content || q.text)}</p>
+                    </div>
+                    <div class="bg-indigo-600/20 border border-indigo-500/30 px-3 py-1.5 rounded-lg text-center shrink-0">
+                        <span class="text-xs text-indigo-300 block font-semibold">Votes</span>
+                        <span class="text-base font-bold text-indigo-400">${q.votes || 0}</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        // 5. Hiển thị định dạng thời gian đếm ngược (MM:SS)
+        function updateTimerDisplay(totalSeconds) {
+            if (totalSeconds < 0) totalSeconds = 0;
+            const mins = Math.floor(totalSeconds / 60);
+            const secs = totalSeconds % 60;
+            const formatted = `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+            document.getElementById('timerDisplay').textContent = formatted;
+        }
+
+        function escapeHtml(text) {
+            return text ? text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;") : '';
+        }
+
+        // Chạy khởi tạo khi tải trang xong
+        window.onload = () => {
+            generateStudentQRCode();
+            initWebSocket(currentPin);
+        };
+    </script>
+</body>
+</html>
