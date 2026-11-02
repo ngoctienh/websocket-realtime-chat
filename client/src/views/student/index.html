@@ -92,6 +92,11 @@
 
         // Tự động điền lại tên và mssv nếu đã lưu trước đó
         window.onload = () => {
+            const urlPin = new URLSearchParams(window.location.search).get('pin');
+            if (urlPin) {
+                const pinField = document.getElementById('pinInput');
+                if (pinField) pinField.value = urlPin;
+            }
             if (localStorage.getItem('student_name')) {
                 document.getElementById('studentNameInput').value = localStorage.getItem('student_name');
             }
@@ -100,10 +105,16 @@
             }
         };
 
-        function initWebSocket(roomCode) {
+        function getWsUrl() {
             const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsUrl = `${wsProto}//${location.hostname || 'localhost'}:8080/ws`;
-            ws = new WebSocket(wsUrl);
+            if (!location.host || location.port === '5500' || location.port === '5173') {
+                return `${wsProto}//${location.hostname || 'localhost'}:8080/ws`;
+            }
+            return `${wsProto}//${location.host}/ws`;
+        }
+
+        function initWebSocket(roomCode) {
+            ws = new WebSocket(getWsUrl());
 
             ws.onopen = () => {
                 updateNetworkStatus('online');
