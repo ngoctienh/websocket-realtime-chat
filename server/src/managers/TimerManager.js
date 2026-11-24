@@ -43,12 +43,13 @@ class TimerManager {
   }
 
   /**
-   * Đảm bảo phòng có state đồng hồ mặc định (15 phút = 900s)
+   * Đảm bảo phòng có state đồng hồ mặc định (15 phút = 900s) kèm pha trình bày (presentation | qna)
    */
   ensureTimer(roomCode, durationSec = DEFAULT_TIMER_DURATION_SEC) {
     if (!this.timers.has(roomCode)) {
       this.timers.set(roomCode, {
         status: 'stopped', // 'stopped' | 'running' | 'paused'
+        phase: 'presentation', // 'presentation' (Trình bày & Demo) | 'qna' (Hỏi đáp Phản biện)
         duration: durationSec,
         accumulatedMs: 0,
         lastStartedAt: null
@@ -65,11 +66,16 @@ class TimerManager {
   }
 
   /**
-   * Thực thi lệnh điều khiển từ Host / Projector: start | pause | resume | reset | setDuration
+   * Thực thi lệnh điều khiển từ Host / Projector:
+   * start | pause | resume | reset | setDuration | addTime | setPhase
    */
-  control(roomCode, action, customDurationSec) {
+  control(roomCode, action, customDurationSec, options = {}) {
     const timer = this.ensureTimer(roomCode);
     const now = Date.now();
+
+    if (options.phase && (options.phase === 'presentation' || options.phase === 'qna')) {
+      timer.phase = options.phase;
+    }
 
     switch (action) {
       case 'start': {
@@ -126,6 +132,28 @@ class TimerManager {
         break;
       }
 
+      case 'addTime': {
+        // Cộng hoặc trừ thời lượng đồng hồ ngay khi đang chạy mà không làm gián đoạn
+        const deltaSec = typeof options.deltaSec === 'number' ? options.deltaSec : 60;
+        const currentElapsedSec = Math.floor(this._getElapsedMs(timer, now) / 1000);
+        const minAllowedDuration = Math.max(10, currentElapsedSec);
+        timer.duration = Math.min(7200, Math.max(minAllowedDuration, timer.duration + deltaSec));
+        break;
+      }
+
+      case 'setPhase': {
+        if (options.phase === 'presentation' || options.phase === 'qna') {
+          timer.phase = options.phase;
+        }
+        if (typeof customDurationSec === 'number' && customDurationSec >= 10) {
+          timer.duration = customDurationSec;
+          timer.status = 'stopped';
+          timer.accumulatedMs = 0;
+          timer.lastStartedAt = null;
+        }
+        break;
+      }
+
       default:
         break;
     }
@@ -170,9 +198,16 @@ class TimerManager {
 
     return {
       status: timer.status,
+      phase: timer.phase || 'presentation',
+      phaseLabel:
+        timer.phase === 'qna'
+          ? 'Pha 2: Hỏi đáp & Phản biện'
+          : 'Pha 1: Trình bày & Demo',
       duration: timer.duration,
       elapsed,
       remaining,
+      progressPercent:
+        timer.duration > 0 ? Math.min(100, Math.round((elapsed / timer.duration) * 100)) : 0,
       warningLevel: this._getWarningLevel(remaining, timer.status, elapsed),
       serverTimestamp: now
     };

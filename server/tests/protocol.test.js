@@ -263,4 +263,140 @@ test('ClassLive Pro WebSocket Server - Kiểm thử toàn diện giao thức & n
 
     hostWs.close();
   });
+
+  await t.test('7. Đồng bộ Slide thuyết trình, Con trỏ Laser đỏ & Khung Camera Diễn giả PiP', async () => {
+    const hostWs = await connectTestClient(`${baseWsUrl}/ws`);
+    hostWs.sendJson(MessageTypes.ROOM_JOIN, { role: 'host', hostToken }, roomPin);
+    await hostWs.waitFor(MessageTypes.ROOM_JOINED);
+
+    const studentWs = await connectTestClient(
+      `${baseWsUrl}/ws?pin=${roomPin}&role=student&deviceId=sv_slide_watcher`
+    );
+    const joinedStudent = await studentWs.waitFor(MessageTypes.ROOM_JOINED);
+    assert.equal(joinedStudent.payload.snapshot.slide.page, 1);
+    assert.ok(joinedStudent.payload.snapshot.slide.total >= 5);
+
+    // Host bấm lật sang trang Slide kế tiếp (action: 'next')
+    hostWs.sendJson(MessageTypes.SLIDE_SYNC, { action: 'next' }, roomPin);
+    const slideNext = await studentWs.waitFor(MessageTypes.SLIDE_SYNC);
+    assert.equal(slideNext.payload.page, 2);
+    assert.ok(slideNext.payload.currentSlide.title.includes('Đồng bộ Thời gian'));
+
+    // Host di chuyển con trỏ Laser đỏ trên Slide (tọa độ x: 0.45, y: 0.32)
+    hostWs.sendJson(MessageTypes.SLIDE_LASER, { active: true, x: 0.45, y: 0.32 }, roomPin);
+    const laserMsg = await studentWs.waitFor(MessageTypes.SLIDE_LASER);
+    assert.equal(laserMsg.payload.active, true);
+    assert.equal(laserMsg.payload.x, 0.45);
+    assert.equal(laserMsg.payload.y, 0.32);
+
+    // Host bật khung Camera Diễn giả PiP trên màn chiếu Projector
+    hostWs.sendJson(
+      MessageTypes.STAGE_CAMERA,
+      { enabled: true, position: 'bottom-right', size: 'lg' },
+      roomPin
+    );
+    const camMsg = await studentWs.waitFor(MessageTypes.STAGE_CAMERA);
+    assert.equal(camMsg.payload.enabled, true);
+    assert.equal(camMsg.payload.size, 'lg');
+
+    hostWs.close();
+    studentWs.close();
+  });
+
+  await t.test('8. Đa Nhóm Thuyết trình (Leaderboard), Trọng số Giảng viên/Sinh viên & Ghi chú phản biện', async () => {
+    const hostWs = await connectTestClient(`${baseWsUrl}/ws`);
+    hostWs.sendJson(MessageTypes.ROOM_JOIN, { role: 'host', hostToken }, roomPin);
+    await hostWs.waitFor(MessageTypes.ROOM_JOINED);
+
+    const studentWs = await connectTestClient(
+      `${baseWsUrl}/ws?pin=${roomPin}&role=student&deviceId=sv_peer_reviewer`
+    );
+    await studentWs.waitFor(MessageTypes.ROOM_JOINED);
+
+    // Host chuyển sang Nhóm 2 và tự động tạo mới
+    hostWs.sendJson(
+      MessageTypes.GROUP_SWITCH,
+      { name: 'Nhóm 2: Giao thức WebSocket & Slide Sync', topic: 'RFC 6455 Realtime' },
+      roomPin
+    );
+    const groupUpdated = await studentWs.waitFor(MessageTypes.GROUP_UPDATED);
+    assert.equal(groupUpdated.payload.currentGroup.name, 'Nhóm 2: Giao thức WebSocket & Slide Sync');
+    assert.equal(groupUpdated.payload.groups.length, 2);
+
+    // Sinh viên chấm điểm Nhóm 2 (trung bình 4.0) kèm nhận xét phản biện
+    studentWs.sendJson(
+      MessageTypes.RATING_SUBMIT,
+      {
+        deviceId: 'sv_peer_reviewer',
+        scores: { content: 4, presentation: 4, demo: 4, qa: 4 },
+        comment: 'Slide đồng bộ mượt, demo trực quan!'
+      },
+      roomPin
+    );
+    await studentWs.waitFor(MessageTypes.RATING_SUCCESS);
+    await hostWs.waitFor(MessageTypes.RATING_SUMMARY);
+
+    // Giảng viên (Host) chấm điểm Nhóm 2 (trung bình 5.0) -> Điểm trọng số 50/50 phải bằng 4.5
+    hostWs.sendJson(
+      MessageTypes.RATING_SUBMIT,
+      {
+        deviceId: 'host_lecturer',
+        scores: { content: 5, presentation: 5, demo: 5, qa: 5 },
+        comment: 'Kiến trúc mạng chuẩn xác, phân tách Control Plane tốt.'
+      },
+      roomPin
+    );
+    const weightedSummary = await hostWs.waitFor(
+      (m) => m.type === MessageTypes.RATING_SUMMARY && m.payload.hostVotes === 1
+    );
+    assert.equal(weightedSummary.payload.studentAverages.overall, 4);
+    assert.equal(weightedSummary.payload.hostAverages.overall, 5);
+    assert.equal(weightedSummary.payload.weightedAverages.overall, 4.5);
+    assert.equal(weightedSummary.payload.comments.length, 2);
+
+    // Sinh viên gửi câu hỏi có gắn Tag 'tech' và Host ghi chú câu trả lời
+    studentWs.sendJson(
+      MessageTypes.QUESTION_ADD,
+      {
+        content: 'Tọa độ con trỏ Laser có lưu vào Event Log không?',
+        category: 'tech'
+      },
+      roomPin
+    );
+    const techQ = await hostWs.waitFor(MessageTypes.QUESTION_BROADCAST);
+    assert.equal(techQ.payload.category, 'tech');
+
+    hostWs.sendJson(
+      MessageTypes.QUESTION_REPLY,
+      {
+        questionId: techQ.payload.id,
+        reply: 'Không lưu vào Event Log (recordLog: false) để tối ưu RAM cho luồng tần suất cao.'
+      },
+      roomPin
+    );
+    const repliedMsg = await studentWs.waitFor(MessageTypes.QUESTION_REPLY);
+    assert.equal(repliedMsg.payload.question.answered, true);
+    assert.ok(repliedMsg.payload.question.reply.includes('recordLog: false'));
+
+    // Kiểm tra cộng thêm +60 giây đồng hồ & chuyển sang Pha 2 (Hỏi đáp phản biện)
+    hostWs.sendJson(
+      MessageTypes.TIMER_CONTROL,
+      { action: 'addTime', deltaSec: 60, phase: 'qna' },
+      roomPin
+    );
+    const timerAdded = await studentWs.waitFor(
+      (m) => m.type === MessageTypes.TIMER_SYNC && m.payload.phase === 'qna'
+    );
+    assert.equal(timerAdded.payload.duration, 960);
+    assert.equal(timerAdded.payload.phase, 'qna');
+
+    // Sinh viên thả cảm xúc bay lên màn chiếu
+    studentWs.sendJson(MessageTypes.REACTION_SEND, { emoji: '🔥' }, roomPin);
+    const rxMsg = await hostWs.waitFor(MessageTypes.REACTION_BROADCAST);
+    assert.equal(rxMsg.payload.emoji, '🔥');
+    assert.equal(rxMsg.payload.totalReactions, 1);
+
+    hostWs.close();
+    studentWs.close();
+  });
 });

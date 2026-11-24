@@ -14,6 +14,7 @@ class RateLimiter {
       ...options
     };
     this.questionBuckets = new Map();
+    this.reactionBuckets = new Map();
     this.messageBuckets = new Map();
     this.joinFailBuckets = new Map();
   }
@@ -60,6 +61,19 @@ class RateLimiter {
       clientKey,
       this.config.QUESTION_WINDOW_MS,
       this.config.MAX_QUESTIONS_PER_WINDOW,
+      true
+    );
+  }
+
+  /**
+   * Giới hạn thả cảm xúc (Live Emoji Reactions): tối đa 15 lần / 10 giây / máy
+   */
+  checkReactionLimit(clientKey) {
+    return this._checkBucket(
+      this.reactionBuckets,
+      clientKey,
+      this.config.REACTION_WINDOW_MS || 10000,
+      this.config.MAX_REACTIONS_PER_WINDOW || 15,
       true
     );
   }
@@ -122,6 +136,7 @@ class RateLimiter {
     };
 
     cleanMap(this.questionBuckets, this.config.QUESTION_WINDOW_MS);
+    cleanMap(this.reactionBuckets, this.config.REACTION_WINDOW_MS || 10000);
     cleanMap(this.messageBuckets, this.config.MESSAGE_WINDOW_MS);
     cleanMap(this.joinFailBuckets, this.config.JOIN_FAIL_WINDOW_MS);
   }

@@ -160,6 +160,17 @@ function createClassLiveServer(options = {}) {
       return sendJson(res, 200, snapshot);
     }
 
+    // 5b. Xem bảng xếp hạng các nhóm thuyết trình: GET /api/rooms/:code/leaderboard
+    const lbMatch = pathname.match(/^\/api\/rooms\/([A-Za-z0-9]{4,8})\/leaderboard$/);
+    if (req.method === 'GET' && lbMatch) {
+      const code = lbMatch[1].toUpperCase();
+      const groupsPayload = roomManager.getGroupsPayload(code);
+      if (!groupsPayload) {
+        return sendJson(res, 404, { error: `Không tìm thấy phòng ${code}.` });
+      }
+      return sendJson(res, 200, groupsPayload);
+    }
+
     // 6. Gửi khảo sát độ hài lòng thực tế qua HTTP: POST /api/survey
     if (req.method === 'POST' && pathname === '/api/survey') {
       try {
@@ -577,7 +588,38 @@ function createClassLiveServer(options = {}) {
         break;
       }
 
-      // 8. Chấm điểm Rubric 4 tiêu chí 1-5 sao
+      // 7b. Ghi chú câu trả lời chính thức cho câu hỏi (question.reply)
+      case MessageTypes.QUESTION_REPLY: {
+        const room = roomManager.getRoom(ws.currentRoom);
+        if (!roomManager.isAuthorizedHost(ws, room, payload.hostToken)) {
+          return sendError(ws, 'forbidden', 'Chỉ Host hoặc Nhóm thuyết trình mới được ghi chú câu trả lời.');
+        }
+
+        const repCheck = Validator.validateQuestionReply(payload, ws.clientName);
+        if (!repCheck.valid) {
+          return sendError(ws, repCheck.code, repCheck.error);
+        }
+
+        const repRes = roomManager.replyQuestion(ws.currentRoom, repCheck.data);
+        if (!repRes.ok) {
+          return sendError(ws, repRes.code, repRes.error);
+        }
+
+        roomManager.broadcastToRoom(ws.currentRoom, MessageTypes.QUESTION_REPLY, {
+          question: repRes.question,
+          questions: roomManager.getSortedQuestions(ws.currentRoom)
+        });
+
+        roomManager.broadcastToRoom(
+          ws.currentRoom,
+          MessageTypes.PRESENCE_UPDATE,
+          roomManager.getPresencePayload(ws.currentRoom),
+          { recordLog: false }
+        );
+        break;
+      }
+
+      // 8. Chấm điểm Rubric 4 tiêu chí 1-5 sao (hỗ trợ Nhận xét & Trọng số Giảng viên / Sinh viên)
       case MessageTypes.RATING_SUBMIT: {
         if (!ws.currentRoom) {
           return sendError(ws, 'not_in_room', 'Vui lòng vào phòng trước khi chấm điểm.');
@@ -588,10 +630,19 @@ function createClassLiveServer(options = {}) {
           return sendError(ws, rCheck.code, rCheck.error);
         }
 
+        const room = roomManager.getRoom(ws.currentRoom);
+        const isHostVoter =
+          ws.role === 'host' ||
+          roomManager.isAuthorizedHost(ws, room, payload.hostToken) ||
+          payload.role === 'host';
+
         const effectiveDeviceId = rCheck.data.deviceId || ws.deviceId || ws.connectionId;
         const rateRes = roomManager.submitRating(ws.currentRoom, {
           scores: rCheck.data.scores,
-          deviceId: effectiveDeviceId
+          deviceId: effectiveDeviceId,
+          role: isHostVoter ? 'host' : 'student',
+          comment: rCheck.data.comment,
+          authorName: rCheck.data.authorName || ws.clientName
         });
 
         if (!rateRes.ok) {
@@ -600,13 +651,14 @@ function createClassLiveServer(options = {}) {
 
         const ackPayload = {
           isUpdate: rateRes.isUpdate,
-          scores: rCheck.data.scores
+          scores: rCheck.data.scores,
+          comment: rCheck.data.comment,
+          role: isHostVoter ? 'host' : 'student'
         };
 
         sendToClient(ws, MessageTypes.RATING_SUBMITTED, ackPayload, ws.currentRoom);
         sendToClient(ws, MessageTypes.RATING_SUCCESS, ackPayload, ws.currentRoom);
 
-        const room = roomManager.getRoom(ws.currentRoom);
         const targetRoles = room.settings.resultPublished ? null : ['host'];
         roomManager.broadcastToRoom(
           ws.currentRoom,
@@ -624,6 +676,154 @@ function createClassLiveServer(options = {}) {
           roomManager.getPresencePayload(ws.currentRoom),
           { recordLog: false }
         );
+        break;
+      }
+
+      // 8b. Quản lý Đa Nhóm thuyết trình & Bảng xếp hạng (group.add / group.switch)
+      case MessageTypes.GROUP_ADD:
+      case MessageTypes.GROUP_SWITCH: {
+        const room = roomManager.getRoom(ws.currentRoom);
+        if (!roomManager.isAuthorizedHost(ws, room, payload.hostToken)) {
+          return sendError(ws, 'forbidden', 'Chỉ Host mới có quyền thêm hoặc chuyển nhóm thuyết trình.');
+        }
+
+        const gCheck = Validator.validateGroupAction(type, payload);
+        if (!gCheck.valid) {
+          return sendError(ws, gCheck.code, gCheck.error);
+        }
+
+        const res =
+          type === MessageTypes.GROUP_ADD
+            ? roomManager.addGroup(ws.currentRoom, {
+                name: gCheck.data.name,
+                topic: gCheck.data.topic,
+                switchImmediately: Boolean(payload.switchImmediately)
+              })
+            : roomManager.switchGroup(ws.currentRoom, gCheck.data);
+
+        if (!res.ok) {
+          return sendError(ws, res.code, res.error);
+        }
+
+        roomManager.broadcastToRoom(
+          ws.currentRoom,
+          MessageTypes.GROUP_UPDATED,
+          res.groupsPayload
+        );
+
+        roomManager.broadcastToRoom(
+          ws.currentRoom,
+          MessageTypes.PRESENCE_UPDATE,
+          roomManager.getPresencePayload(ws.currentRoom),
+          { recordLog: false }
+        );
+        break;
+      }
+
+      // 8c. Đồng bộ Slide thuyết trình thời gian thực (slide.sync)
+      case MessageTypes.SLIDE_SYNC: {
+        const room = roomManager.getRoom(ws.currentRoom);
+        const canControlSlide =
+          roomManager.isAuthorizedHost(ws, room, payload.hostToken) ||
+          (ws.role === 'projector' && ws.currentRoom === room?.roomCode);
+
+        if (!canControlSlide) {
+          return sendError(ws, 'forbidden', 'Chỉ Host hoặc Projector mới có quyền điều khiển Slide.');
+        }
+
+        const sCheck = Validator.validateSlideSync(payload);
+        if (!sCheck.valid) {
+          return sendError(ws, sCheck.code, sCheck.error);
+        }
+
+        const slideRes = roomManager.updateSlideState(ws.currentRoom, sCheck.data);
+        if (!slideRes.ok) {
+          return sendError(ws, slideRes.code, slideRes.error);
+        }
+
+        roomManager.broadcastToRoom(
+          ws.currentRoom,
+          MessageTypes.SLIDE_SYNC,
+          slideRes.slideState
+        );
+        break;
+      }
+
+      // 8d. Tọa độ con trỏ Laser đỏ thời gian thực trên Slide (slide.laser - Ephemeral Stream)
+      case MessageTypes.SLIDE_LASER: {
+        const room = roomManager.getRoom(ws.currentRoom);
+        const canControlLaser =
+          roomManager.isAuthorizedHost(ws, room, payload.hostToken) ||
+          (ws.role === 'projector' && ws.currentRoom === room?.roomCode);
+
+        if (!canControlLaser) {
+          return sendError(ws, 'forbidden', 'Chỉ Host hoặc Projector mới có quyền chiếu con trỏ Laser.');
+        }
+
+        const lCheck = Validator.validateSlideLaser(payload);
+        if (!lCheck.valid) {
+          return sendError(ws, lCheck.code, lCheck.error);
+        }
+
+        const laserState = roomManager.updateLaserState(ws.currentRoom, lCheck.data);
+        // Không ghi vào eventLog (recordLog: false) để tối ưu RAM khi di chuột tần suất cao
+        roomManager.broadcastToRoom(
+          ws.currentRoom,
+          MessageTypes.SLIDE_LASER,
+          laserState,
+          { recordLog: false }
+        );
+        break;
+      }
+
+      // 8e. Điều khiển bật/tắt khung Camera Diễn giả PiP trên màn chiếu (stage.camera)
+      case MessageTypes.STAGE_CAMERA: {
+        const room = roomManager.getRoom(ws.currentRoom);
+        const canControlCam =
+          roomManager.isAuthorizedHost(ws, room, payload.hostToken) ||
+          (ws.role === 'projector' && ws.currentRoom === room?.roomCode);
+
+        if (!canControlCam) {
+          return sendError(ws, 'forbidden', 'Chỉ Host hoặc Projector mới có quyền điều khiển Camera sân khấu.');
+        }
+
+        const cCheck = Validator.validateStageCamera(payload);
+        const camState = roomManager.updateCameraState(ws.currentRoom, cCheck.data);
+        roomManager.broadcastToRoom(
+          ws.currentRoom,
+          MessageTypes.STAGE_CAMERA,
+          camState
+        );
+        break;
+      }
+
+      // 8f. Khán giả thả cảm xúc bay trực tiếp lên màn chiếu (reaction.send)
+      case MessageTypes.REACTION_SEND: {
+        if (!ws.currentRoom) {
+          return sendError(ws, 'not_in_room', 'Vui lòng vào phòng trước khi thả cảm xúc.');
+        }
+
+        const rateKey = `${ws.currentRoom}:${ws.deviceId || ws.connectionId}`;
+        const rxLimit = rateLimiter.checkReactionLimit(rateKey);
+        if (!rxLimit.allowed) {
+          return sendError(
+            ws,
+            'rate_limited',
+            `Bạn thả cảm xúc quá nhanh. Vui lòng chờ ${rxLimit.retryAfterSec} giây.`,
+            { retryAfterSec: rxLimit.retryAfterSec }
+          );
+        }
+
+        const rxCheck = Validator.validateReactionSend(payload, ws.clientName);
+        const rxPayload = roomManager.recordReaction(ws.currentRoom, rxCheck.data);
+        if (rxPayload) {
+          roomManager.broadcastToRoom(
+            ws.currentRoom,
+            MessageTypes.REACTION_BROADCAST,
+            rxPayload,
+            { recordLog: false }
+          );
+        }
         break;
       }
 
@@ -687,11 +887,28 @@ function createClassLiveServer(options = {}) {
           return sendError(ws, tCheck.code, tCheck.error);
         }
 
-        timerManager.control(ws.currentRoom, tCheck.data.action, tCheck.data.duration);
+        timerManager.control(ws.currentRoom, tCheck.data.action, tCheck.data.duration, {
+          deltaSec: tCheck.data.deltaSec,
+          phase: tCheck.data.phase
+        });
         break;
       }
 
-      // 11. Gửi khảo sát độ hài lòng thực tế qua WebSocket (Bài 3)
+      // 11. Host đẩy Popup khảo sát độ hài lòng CSAT xuống toàn bộ màn hình Sinh viên (survey.trigger)
+      case MessageTypes.SURVEY_TRIGGER: {
+        const room = roomManager.getRoom(ws.currentRoom);
+        if (!roomManager.isAuthorizedHost(ws, room, payload.hostToken)) {
+          return sendError(ws, 'forbidden', 'Chỉ Host mới có quyền phát khảo sát xuống Sinh viên.');
+        }
+
+        roomManager.broadcastToRoom(ws.currentRoom, MessageTypes.SURVEY_TRIGGER, {
+          title: Validator.sanitizeString(payload.title || 'Khảo sát độ hài lòng buổi thuyết trình', 160),
+          triggeredAt: Date.now()
+        });
+        break;
+      }
+
+      // 11b. Gửi khảo sát độ hài lòng thực tế qua WebSocket (Bài 3)
       case MessageTypes.SURVEY_SUBMIT: {
         const sCheck = Validator.validateSurveySubmit(payload);
         const stats = roomManager.submitSurvey(ws.currentRoom, sCheck.data);

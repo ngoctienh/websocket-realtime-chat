@@ -30,14 +30,20 @@ module.exports = {
   // Giới hạn câu hỏi tối đa chiều dài ký tự
   MAX_QUESTION_LENGTH: 500,
   MAX_AUTHOR_NAME_LENGTH: 60,
+  MAX_REPLY_LENGTH: 500,
+  MAX_COMMENT_LENGTH: 300,
+  MAX_SLIDE_URL_LENGTH: 1000,
 
   // Cấu hình Rate Limit (Chống spam & dò mã PIN)
   RATE_LIMIT: {
     QUESTION_WINDOW_MS: 60 * 1000,       // Cửa sổ 1 phút
     MAX_QUESTIONS_PER_WINDOW: 3,         // Tối đa 3 câu hỏi / phút / máy
 
+    REACTION_WINDOW_MS: 10 * 1000,       // Cửa sổ 10 giây cho thả cảm xúc
+    MAX_REACTIONS_PER_WINDOW: 15,        // Tối đa 15 lần thả cảm xúc / 10 giây / máy
+
     MESSAGE_WINDOW_MS: 60 * 1000,        // Cửa sổ 1 phút
-    MAX_MESSAGES_PER_WINDOW: 120,        // Tối đa 120 gói tin / phút / kết nối
+    MAX_MESSAGES_PER_WINDOW: 240,        // Tối đa 240 gói tin / phút / kết nối (hỗ trợ cả laser pointer)
 
     JOIN_FAIL_WINDOW_MS: 60 * 1000,      // Cửa sổ 1 phút
     MAX_JOIN_FAILS_PER_WINDOW: 10        // Tối đa 10 lần nhập sai PIN / phút / IP
@@ -45,6 +51,21 @@ module.exports = {
 
   // 4 tiêu chí chấm điểm Rubric chuẩn của đề tài
   RUBRIC_CRITERIA: ['content', 'presentation', 'demo', 'qa'],
+
+  // Trọng số chấm điểm mặc định khi có cả Giảng viên (Host) và Sinh viên (Student)
+  DEFAULT_WEIGHTS: {
+    hostWeight: 0.5,    // Giảng viên 50%
+    studentWeight: 0.5  // Hội đồng Sinh viên 50%
+  },
+
+  // Danh mục Tag phân loại câu hỏi Q&A
+  QUESTION_CATEGORIES: ['question', 'feedback', 'bug', 'tech'],
+
+  // Danh sách biểu tượng cảm xúc hợp lệ cho Live Reactions
+  VALID_REACTIONS: ['👏', '🔥', '❤️', '🎯', '🤔', '👍'],
+
+  // Các pha của đồng hồ thuyết trình
+  TIMER_PHASES: ['presentation', 'qna'],
 
   // Các vai trò hợp lệ trong phòng
   VALID_ROLES: ['student', 'host', 'projector'],

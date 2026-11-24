@@ -1,7 +1,13 @@
 const {
   MAX_QUESTION_LENGTH,
   MAX_AUTHOR_NAME_LENGTH,
+  MAX_REPLY_LENGTH,
+  MAX_COMMENT_LENGTH,
+  MAX_SLIDE_URL_LENGTH,
   RUBRIC_CRITERIA,
+  QUESTION_CATEGORIES,
+  VALID_REACTIONS,
+  TIMER_PHASES,
   VALID_ROLES
 } = require('../config/constants');
 
@@ -124,12 +130,55 @@ function validateQuestionAdd(payload = {}, fallbackName = 'Sinh viên') {
   );
   const authorName = isAnonymous ? 'Ẩn danh' : rawAuthor || 'Sinh viên';
 
+  const rawCategory = typeof payload.category === 'string' ? payload.category.trim().toLowerCase() : 'question';
+  const category = QUESTION_CATEGORIES.includes(rawCategory) ? rawCategory : 'question';
+
   return {
     valid: true,
     data: {
       content,
       isAnonymous,
-      authorName
+      authorName,
+      category
+    }
+  };
+}
+
+/**
+ * Kiểm tra dữ liệu ghi chú câu trả lời cho câu hỏi (question.reply)
+ */
+function validateQuestionReply(payload = {}, fallbackAuthor = 'Nhóm thuyết trình') {
+  const rawId = payload.questionId !== undefined ? payload.questionId : payload.id;
+  if (rawId === undefined || rawId === null || String(rawId).trim() === '') {
+    return {
+      valid: false,
+      code: 'invalid_question_id',
+      error: 'Thiếu mã câu hỏi (questionId) để trả lời.'
+    };
+  }
+
+  const replyText = sanitizeString(
+    payload.reply || payload.answer || payload.content || payload.text || '',
+    MAX_REPLY_LENGTH
+  );
+  if (!replyText) {
+    return {
+      valid: false,
+      code: 'empty_reply',
+      error: 'Nội dung câu trả lời không được để trống.'
+    };
+  }
+
+  const repliedBy =
+    sanitizeString(payload.repliedBy || payload.authorName || fallbackAuthor, MAX_AUTHOR_NAME_LENGTH) ||
+    'Nhóm thuyết trình';
+
+  return {
+    valid: true,
+    data: {
+      questionId: String(rawId).trim(),
+      reply: replyText,
+      repliedBy
     }
   };
 }
@@ -180,21 +229,26 @@ function validateRatingSubmit(payload = {}) {
   }
 
   const deviceId = sanitizeString(payload.deviceId || '', 128);
+  const comment = sanitizeString(payload.comment || payload.feedback || payload.note || '', MAX_COMMENT_LENGTH);
+  const authorName = sanitizeString(payload.authorName || payload.clientName || '', MAX_AUTHOR_NAME_LENGTH);
 
   return {
     valid: true,
     data: {
       scores,
-      deviceId
+      deviceId,
+      comment,
+      authorName
     }
   };
 }
 
 /**
  * Kiểm tra lệnh điều khiển đồng hồ 15 phút (timer.control)
+ * Hỗ trợ: start, pause, resume, reset, setDuration, addTime (cộng/trừ giây), setPhase (presentation | qna)
  */
 function validateTimerControl(payload = {}) {
-  const validActions = ['start', 'pause', 'resume', 'reset', 'setDuration'];
+  const validActions = ['start', 'pause', 'resume', 'reset', 'setDuration', 'addTime', 'setPhase'];
   const action = typeof payload.action === 'string' ? payload.action.trim() : '';
 
   if (!validActions.includes(action)) {
@@ -218,9 +272,237 @@ function validateTimerControl(payload = {}) {
     duration = Math.floor(parsed);
   }
 
+  let deltaSec = undefined;
+  if (action === 'addTime' || payload.deltaSec !== undefined || payload.addSeconds !== undefined) {
+    const rawDelta = Number(payload.deltaSec ?? payload.addSeconds ?? 60);
+    if (!Number.isFinite(rawDelta) || Math.abs(rawDelta) > 3600) {
+      return {
+        valid: false,
+        code: 'invalid_timer_delta',
+        error: 'Số giây cộng/trừ (deltaSec) phải nằm trong khoảng -3600 đến +3600 giây.'
+      };
+    }
+    deltaSec = Math.floor(rawDelta);
+  }
+
+  let phase = undefined;
+  if (payload.phase !== undefined || action === 'setPhase') {
+    const rawPhase = typeof payload.phase === 'string' ? payload.phase.trim().toLowerCase() : 'presentation';
+    if (!TIMER_PHASES.includes(rawPhase)) {
+      return {
+        valid: false,
+        code: 'invalid_timer_phase',
+        error: `Pha trình bày không hợp lệ. Chỉ chấp nhận: ${TIMER_PHASES.join(', ')}.`
+      };
+    }
+    phase = rawPhase;
+  }
+
   return {
     valid: true,
-    data: { action, duration }
+    data: { action, duration, deltaSec, phase }
+  };
+}
+
+/**
+ * Kiểm tra dữ liệu quản lý Nhóm thuyết trình (group.add / group.switch)
+ */
+function validateGroupAction(type, payload = {}) {
+  const groupId = sanitizeString(String(payload.groupId ?? payload.id ?? ''), 64);
+  const name = sanitizeString(payload.name || payload.groupName || payload.title || '', 120);
+  const topic = sanitizeString(payload.topic || payload.description || '', 200);
+
+  if (type === 'group.add' && !name) {
+    return {
+      valid: false,
+      code: 'invalid_group_name',
+      error: 'Vui lòng nhập tên nhóm thuyết trình (name).'
+    };
+  }
+
+  if (type === 'group.switch' && !groupId && !name) {
+    return {
+      valid: false,
+      code: 'invalid_group_target',
+      error: 'Vui lòng cung cấp mã nhóm (groupId) hoặc tên nhóm (name) để chuyển nhóm.'
+    };
+  }
+
+  return {
+    valid: true,
+    data: {
+      groupId,
+      name,
+      topic
+    }
+  };
+}
+
+/**
+ * Kiểm tra dữ liệu Đồng bộ Slide thuyết trình (slide.sync)
+ * Hỗ trợ action: next | prev | goto | load, hoặc truyền trực tiếp page / total / url / slides
+ */
+function validateSlideSync(payload = {}) {
+  const validActions = ['next', 'prev', 'goto', 'load', 'sync'];
+  const rawAction = typeof payload.action === 'string' ? payload.action.trim().toLowerCase() : 'sync';
+  const action = validActions.includes(rawAction) ? rawAction : 'sync';
+
+  let page = undefined;
+  if (payload.page !== undefined || payload.currentSlide !== undefined) {
+    const parsedPage = Number(payload.page ?? payload.currentSlide);
+    if (!Number.isFinite(parsedPage) || parsedPage < 1 || parsedPage > 500) {
+      return {
+        valid: false,
+        code: 'invalid_slide_page',
+        error: 'Số trang slide (page) phải từ 1 đến 500.'
+      };
+    }
+    page = Math.floor(parsedPage);
+  }
+
+  let total = undefined;
+  if (payload.total !== undefined || payload.totalSlides !== undefined) {
+    const parsedTotal = Number(payload.total ?? payload.totalSlides);
+    if (!Number.isFinite(parsedTotal) || parsedTotal < 1 || parsedTotal > 500) {
+      return {
+        valid: false,
+        code: 'invalid_slide_total',
+        error: 'Tổng số trang slide (total) phải từ 1 đến 500.'
+      };
+    }
+    total = Math.floor(parsedTotal);
+  }
+
+  const url =
+    payload.url !== undefined || payload.embedUrl !== undefined
+      ? sanitizeString(payload.url ?? payload.embedUrl ?? '', MAX_SLIDE_URL_LENGTH)
+      : undefined;
+
+  const title =
+    payload.title !== undefined ? sanitizeString(payload.title, 160) : undefined;
+
+  let slides = undefined;
+  if (Array.isArray(payload.slides)) {
+    slides = payload.slides
+      .slice(0, 100)
+      .map((item, idx) => {
+        if (typeof item === 'string') {
+          return {
+            page: idx + 1,
+            title: `Slide ${idx + 1}`,
+            imageUrl: sanitizeString(item, MAX_SLIDE_URL_LENGTH),
+            content: ''
+          };
+        }
+        if (item && typeof item === 'object') {
+          return {
+            page: Number(item.page) || idx + 1,
+            title: sanitizeString(item.title || `Slide ${idx + 1}`, 160),
+            subtitle: sanitizeString(item.subtitle || '', 200),
+            content: sanitizeString(item.content || item.body || '', 1000),
+            bullets: Array.isArray(item.bullets)
+              ? item.bullets.slice(0, 8).map((b) => sanitizeString(String(b), 200))
+              : undefined,
+            imageUrl: sanitizeString(item.imageUrl || item.url || '', MAX_SLIDE_URL_LENGTH)
+          };
+        }
+        return null;
+      })
+      .filter(Boolean);
+  }
+
+  return {
+    valid: true,
+    data: {
+      action,
+      page,
+      total,
+      url,
+      title,
+      slides
+    }
+  };
+}
+
+/**
+ * Kiểm tra tọa độ con trỏ Laser đỏ thời gian thực trên Slide (slide.laser)
+ * x, y chuẩn hóa trong khoảng [0..1] (hoặc [0..100] phần trăm)
+ */
+function validateSlideLaser(payload = {}) {
+  const active = payload.active !== undefined ? Boolean(payload.active) : true;
+  if (!active) {
+    return {
+      valid: true,
+      data: { active: false, x: 0, y: 0 }
+    };
+  }
+
+  let x = Number(payload.x);
+  let y = Number(payload.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return {
+      valid: false,
+      code: 'invalid_laser_coords',
+      error: 'Tọa độ con trỏ Laser (x, y) phải là số hợp lệ.'
+    };
+  }
+
+  // Hỗ trợ cả hệ tọa độ 0..1 và 0..100 (%)
+  if (x > 1 || y > 1) {
+    x = x / 100;
+    y = y / 100;
+  }
+
+  x = Math.max(0, Math.min(1, Math.round(x * 10000) / 10000));
+  y = Math.max(0, Math.min(1, Math.round(y * 10000) / 10000));
+
+  return {
+    valid: true,
+    data: {
+      active: true,
+      x,
+      y,
+      color: sanitizeString(payload.color || '#ef4444', 20)
+    }
+  };
+}
+
+/**
+ * Kiểm tra tín hiệu điều khiển Khung Camera Diễn giả PiP trên màn chiếu (stage.camera)
+ */
+function validateStageCamera(payload = {}) {
+  const enabled = Boolean(payload.enabled ?? payload.open ?? payload.active ?? false);
+  const validPositions = ['bottom-right', 'bottom-left', 'top-right', 'top-left'];
+  const validSizes = ['sm', 'md', 'lg'];
+
+  const rawPos = typeof payload.position === 'string' ? payload.position.trim().toLowerCase() : 'bottom-right';
+  const rawSize = typeof payload.size === 'string' ? payload.size.trim().toLowerCase() : 'md';
+
+  return {
+    valid: true,
+    data: {
+      enabled,
+      position: validPositions.includes(rawPos) ? rawPos : 'bottom-right',
+      size: validSizes.includes(rawSize) ? rawSize : 'md',
+      mirrored: payload.mirrored !== undefined ? Boolean(payload.mirrored) : true
+    }
+  };
+}
+
+/**
+ * Kiểm tra biểu tượng cảm xúc tương tác trực tiếp (reaction.send)
+ */
+function validateReactionSend(payload = {}, fallbackAuthor = 'Sinh viên') {
+  const rawEmoji = sanitizeString(payload.emoji || payload.reaction || '👏', 16);
+  const emoji = VALID_REACTIONS.includes(rawEmoji) ? rawEmoji : '👏';
+  const authorName = sanitizeString(payload.authorName || fallbackAuthor, MAX_AUTHOR_NAME_LENGTH) || 'Sinh viên';
+
+  return {
+    valid: true,
+    data: {
+      emoji,
+      authorName
+    }
   };
 }
 
@@ -282,8 +564,14 @@ module.exports = {
   isValidRoomCode,
   validateRoomJoin,
   validateQuestionAdd,
+  validateQuestionReply,
   validateQuestionUpvote,
   validateRatingSubmit,
   validateTimerControl,
+  validateGroupAction,
+  validateSlideSync,
+  validateSlideLaser,
+  validateStageCamera,
+  validateReactionSend,
   validateSurveySubmit
 };

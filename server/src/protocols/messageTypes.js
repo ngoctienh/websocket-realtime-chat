@@ -21,24 +21,40 @@ module.exports = {
   QUESTION_BROADCAST: 'question.broadcast',
   QUESTION_UPVOTE: 'question.upvote',
   QUESTION_VOTED: 'question.voted',
-  QUESTION_PIN: 'question.pin',         // Host ghim/bỏ ghim câu hỏi
+  QUESTION_PIN: 'question.pin',         // Host ghim/bỏ ghim câu hỏi (Stage Spotlight)
   QUESTION_ANSWERED: 'question.answered', // Host đánh dấu đã trả lời
   QUESTION_DELETE: 'question.delete',   // Host xóa câu hỏi vi phạm
+  QUESTION_REPLY: 'question.reply',     // Host / Nhóm thuyết trình ghi chú câu trả lời
   QUESTION_TOGGLE: 'question.toggle',   // Host mở/khóa nhận câu hỏi
 
-  // Chấm điểm Rubric (4 tiêu chí 1-5 sao)
+  // Chấm điểm Rubric (4 tiêu chí 1-5 sao, Trọng số GV/SV & Nhận xét)
   RATING_SUBMIT: 'rating.submit',
   RATING_SUBMITTED: 'rating.submitted', // Phản hồi riêng cho SV vừa chấm xong
   RATING_SUCCESS: 'rating.success',     // Alias xác nhận thành công cho UI Student
   RATING_TOGGLE: 'rating.toggle',       // Host mở/khóa chấm
   RATING_PUBLISH: 'rating.publish',     // Host bấm nút "Công bố kết quả"
-  RATING_SUMMARY: 'rating.summary',     // Phát kết quả tổng kết (biểu đồ)
+  RATING_SUMMARY: 'rating.summary',     // Phát kết quả tổng kết (biểu đồ + nhận xét + leaderboard)
 
-  // Đồng hồ đếm ngược 15 phút
-  TIMER_CONTROL: 'timer.control',       // Host start / pause / resume / reset
-  TIMER_SYNC: 'timer.sync',             // Server phát thời gian chuẩn đồng bộ
+  // Quản lý Đa Nhóm thuyết trình & Bảng xếp hạng (Multi-Group Leaderboard)
+  GROUP_ADD: 'group.add',               // Host thêm nhóm thuyết trình mới vào danh sách
+  GROUP_SWITCH: 'group.switch',         // Host chuyển sang nhóm thuyết trình khác
+  GROUP_UPDATED: 'group.updated',       // Server phát danh sách nhóm, nhóm hiện tại & Bảng xếp hạng
+
+  // Đồng bộ Slide thuyết trình, Con trỏ Laser & Khung Camera Diễn giả (Stage Control)
+  SLIDE_SYNC: 'slide.sync',             // Đồng bộ trang Slide hiện tại, tổng số trang, URL/tiêu đề
+  SLIDE_LASER: 'slide.laser',           // Tọa độ con trỏ Laser đỏ (x, y) thời gian thực trên Slide
+  STAGE_CAMERA: 'stage.camera',         // Điều khiển bật/tắt khung Webcam Diễn giả (PiP) trên Projector
+
+  // Tương tác cảm xúc trực tiếp (Live Floating Emoji Reactions)
+  REACTION_SEND: 'reaction.send',       // Sinh viên bấm thả cảm xúc
+  REACTION_BROADCAST: 'reaction.broadcast', // Server phát icon cảm xúc bay lên màn hình Projector
+
+  // Đồng hồ đếm ngược 15 phút (Chia pha & cộng/trừ thời gian linh hoạt)
+  TIMER_CONTROL: 'timer.control',       // Host start / pause / resume / reset / setDuration / addTime / setPhase
+  TIMER_SYNC: 'timer.sync',             // Server phát thời gian chuẩn đồng bộ kèm pha trình bày
 
   // Khảo sát hài lòng thực tế (Số liệu Bài 3)
+  SURVEY_TRIGGER: 'survey.trigger',     // Host đẩy popup khảo sát CSAT xuống toàn bộ màn hình Student
   SURVEY_SUBMIT: 'survey.submit',
   SURVEY_ACK: 'survey.ack',
 

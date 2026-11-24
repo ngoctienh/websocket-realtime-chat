@@ -151,16 +151,119 @@ Server tổng hợp điểm (chỉ phát khi Host bấm nút "Mở kết quả")
 
 ### 2.4 Đồng Bộ Đồng Hồ (Timer)
 
+#### `timer.control` (Host / Projector -> Server)
+Điều khiển đồng hồ đếm ngược, hỗ trợ cộng/trừ thời gian trực tiếp (`addTime`) và chuyển pha trình bày (`setPhase`: `presentation` | `qna`).
+```json
+{
+  "type": "timer.control",
+  "payload": {
+    "action": "addTime", // "start" | "pause" | "resume" | "reset" | "setDuration" | "addTime" | "setPhase"
+    "deltaSec": 60,
+    "phase": "qna" // "presentation" | "qna"
+  }
+}
+```
+
 #### `timer.sync` (Server -> Room)
-Server định kỳ đồng bộ mốc thời gian 15 phút.
+Server định kỳ đồng bộ mốc thời gian 15 phút kèm pha trình bày hiện tại.
 ```json
 {
   "type": "timer.sync",
   "payload": {
     "status": "running", // "stopped" | "running" | "paused"
+    "phase": "presentation",
+    "phaseLabel": "Pha 1: Trình bày & Demo",
     "duration": 900, // 15 phút = 900 giây
     "elapsed": 120, // Đã chạy được 120 giây
+    "remaining": 780,
+    "progressPercent": 13,
     "serverTimestamp": 1730301300000
+  }
+}
+```
+
+---
+
+### 2.5 Đồng Bộ Slide, Con Trỏ Laser & Camera Diễn Giả (Live Stage Sync)
+
+#### `slide.sync` (Host / Projector -> Server -> Room)
+Đồng bộ trang Slide đang chiếu tới màn hình Projector và toàn bộ điện thoại Sinh viên (`/student`).
+```json
+{
+  "type": "slide.sync",
+  "payload": {
+    "action": "next", // "next" | "prev" | "goto" | "load" | "sync"
+    "page": 3,
+    "total": 5,
+    "url": "https://docs.google.com/presentation/...",
+    "title": "Bộ Slide Thuyết Trình Nhóm 3"
+  }
+}
+```
+
+#### `slide.laser` (Host / Projector -> Server -> Room)
+Truyền tọa độ đốm sáng Laser đỏ thời gian thực trên Slide (`recordLog: false` để tối ưu bộ nhớ cho luồng tần suất cao).
+```json
+{
+  "type": "slide.laser",
+  "payload": {
+    "active": true,
+    "x": 0.45,
+    "y": 0.32,
+    "color": "#ef4444"
+  }
+}
+```
+
+#### `stage.camera` (Host -> Server -> Projector)
+Điều khiển bật/tắt và vị trí khung Camera Diễn giả (Picture-in-Picture) trên màn chiếu.
+```json
+{
+  "type": "stage.camera",
+  "payload": {
+    "enabled": true,
+    "position": "bottom-right",
+    "size": "md",
+    "mirrored": true
+  }
+}
+```
+
+---
+
+### 2.6 Quản Lý Đa Nhóm Thuyết Trình & Tương Tác Khán Giả
+
+#### `group.add` / `group.switch` (Host -> Server) & `group.updated` (Server -> Room)
+Thêm hoặc chuyển đổi giữa các nhóm thuyết trình trong cùng 1 phòng, tự động tổng hợp **Bảng xếp hạng (`leaderboard`)**.
+```json
+{
+  "type": "group.switch",
+  "payload": {
+    "name": "Nhóm 2: Giao thức WebSocket & Slide Sync",
+    "topic": "RFC 6455 Realtime"
+  }
+}
+```
+
+#### `question.reply` (Host -> Server -> Room)
+Ghi chú câu trả lời chính thức của nhóm thuyết trình cho câu hỏi phản biện.
+```json
+{
+  "type": "question.reply",
+  "payload": {
+    "questionId": "q_987654",
+    "reply": "Tọa độ Laser không lưu vào Event Log để tối ưu RAM."
+  }
+}
+```
+
+#### `reaction.send` (Client -> Server) & `reaction.broadcast` (Server -> Room)
+Khán giả thả biểu tượng cảm xúc (`👏`, `🔥`, `❤️`, `🎯`, `🤔`, `👍`) bay trực tiếp lên màn chiếu.
+```json
+{
+  "type": "reaction.send",
+  "payload": {
+    "emoji": "🔥"
   }
 }
 ```

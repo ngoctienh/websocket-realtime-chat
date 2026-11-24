@@ -3,9 +3,71 @@ const { WebSocket } = require('ws');
 const {
   ROOM_TTL_MS,
   MAX_EVENT_LOG_SIZE,
-  RUBRIC_CRITERIA
+  RUBRIC_CRITERIA,
+  DEFAULT_WEIGHTS
 } = require('../config/constants');
 const { filterBadWords } = require('../middlewares/badWordsFilter');
+
+/**
+ * Bộ Slide thuyết trình mặc định tích hợp sẵn để nhóm có thể lật trang & chỉ Laser ngay lập tức
+ */
+const DEFAULT_SLIDE_DECK = [
+  {
+    page: 1,
+    title: 'ClassLive Pro — Kiến trúc Giao thức WebSocket (RFC 6455)',
+    subtitle: 'Bài tập nhóm số 3 • Môn Lập trình Mạng',
+    content: 'Hệ thống Hỏi đáp Realtime, Chấm điểm Rubric Đa Nhóm, Đồng bộ Slide & Con trỏ Laser thời gian thực.',
+    bullets: [
+      'Kết nối song công toàn phần (Full-Duplex) trên một kết nối TCP duy nhất (HTTP 101 Upgrade)',
+      'Độ trễ P95 < 30ms cho 100 kết nối đồng thời (100 CCU)',
+      'Tự động khôi phục gói tin bị lỡ qua Sequence ID (sync.resume)'
+    ]
+  },
+  {
+    page: 2,
+    title: 'Cơ chế Đồng bộ Thời gian & Chống Trôi Giờ (Clock Drift)',
+    subtitle: 'Server-Authoritative Synced Timer & Phase Control',
+    content: 'Đồng hồ đếm ngược được tính toán từ mốc Date.now() của Server, chia 2 pha: Trình bày & Phản biện.',
+    bullets: [
+      'Cảnh báo tự động đổi màu: Xanh (> 3p) → Vàng (< 3p) → Đỏ nhấp nháy (< 1p)',
+      'Hỗ trợ cộng/trừ thời gian trực tiếp (+1 phút / -1 phút) ngay khi đang chạy',
+      'Đồng bộ tức thời tới Projector, Host và 100 thiết bị Sinh viên'
+    ]
+  },
+  {
+    page: 3,
+    title: 'Đồng bộ Slide & Con trỏ Laser Thời Gian Thực',
+    subtitle: 'Live Slide Sync & High-Frequency Laser Pointer',
+    content: 'Giúp sinh viên ngồi cuối giảng đường theo dõi trực tiếp từng trang Slide và điểm chỉ Laser trên điện thoại.',
+    bullets: [
+      'Tách biệt Control Plane (lật trang có lưu Event Log) và Ephemeral Stream (tọa độ Laser tần suất cao)',
+      'Tọa độ Laser chuẩn hóa (x, y ∈ [0..1]) tương thích mọi kích thước màn hình',
+      'Điều khiển từ xa khung Camera Diễn giả (PiP) trên màn chiếu Projector'
+    ]
+  },
+  {
+    page: 4,
+    title: 'Chấm điểm Rubric Đa Nhóm & Trọng số Giảng viên / Sinh viên',
+    subtitle: 'Weighted Peer-Review & Live Leaderboard',
+    content: 'Đánh giá khách quan theo 4 tiêu chí kèm nhận xét phản biện và bảng xếp hạng các nhóm thuyết trình.',
+    bullets: [
+      '4 tiêu chí: Nội dung (Content), Trình bày (Presentation), Demo thực tế, Trả lời phản biện (Q&A)',
+      'Tính điểm trọng số: 50% Điểm Giảng viên (Host) + 50% Điểm Hội đồng Sinh viên',
+      'Chống bơm điểm ẩn danh bằng mã băm Salted SHA-256 theo từng phòng'
+    ]
+  },
+  {
+    page: 5,
+    title: 'Bảo mật, Chống Spam & Kiểm thử Tải 100 CCU',
+    subtitle: 'Sliding-Window Rate Limiting & Automated CI/CD',
+    content: 'Đảm bảo tính ổn định và an toàn cho lớp học thực tế khi hoạt động trên mạng WiFi / 4G giảng đường.',
+    bullets: [
+      'Sliding-Window Rate Limiter: tối đa 3 câu hỏi/phút, chống flood frame & khóa IP dò mã PIN',
+      'Lọc từ ngữ không phù hợp & xác thực quyền điều phối bằng hostToken',
+      'Xuất báo cáo tổng hợp ra file CSV/Excel chuẩn tiếng Việt UTF-8 BOM'
+    ]
+  }
+];
 
 /**
  * Quản lý vòng đời Phòng thuyết trình (RoomManager)
@@ -63,6 +125,16 @@ class RoomManager {
     const hostToken = options.hostToken || crypto.randomBytes(16).toString('hex');
     const salt = crypto.randomBytes(12).toString('hex');
 
+    const defaultGroupId = 'grp_1';
+    const initialGroups = new Map();
+    initialGroups.set(defaultGroupId, {
+      id: defaultGroupId,
+      name: options.groupName || 'Nhóm 1 (Đang thuyết trình)',
+      topic: options.title || 'Báo cáo Đồ án Lập trình Mạng WebSocket',
+      createdAt: now,
+      ratings: new Map() // voterHash -> { content, presentation, demo, qa, role, comment, authorName, submittedAt }
+    });
+
     const room = {
       roomCode,
       title: options.title || `Phòng Thuyết Trình #${roomCode}`,
@@ -75,16 +147,48 @@ class RoomManager {
       eventLog: [],
       clients: new Set(),
       questions: [],
-      ratings: new Map(), // voterHash -> { content, presentation, demo, qa, submittedAt }
+      currentGroupId: defaultGroupId,
+      groups: initialGroups,
+      ratings: initialGroups.get(defaultGroupId).ratings, // Tham chiếu trực tiếp tới bảng điểm của nhóm hiện tại
+      slideState: {
+        title: 'Bộ Slide Thuyết Trình Nhóm 3',
+        url: '',
+        page: 1,
+        total: DEFAULT_SLIDE_DECK.length,
+        slides: DEFAULT_SLIDE_DECK.map((s) => ({ ...s })),
+        laser: {
+          active: false,
+          x: 0.5,
+          y: 0.5,
+          color: '#ef4444'
+        }
+      },
+      cameraState: {
+        enabled: false,
+        position: 'bottom-right',
+        size: 'md',
+        mirrored: true
+      },
+      reactionCounts: {
+        '👏': 0,
+        '🔥': 0,
+        '❤️': 0,
+        '🎯': 0,
+        '🤔': 0,
+        '👍': 0
+      },
       surveys: [],
       settings: {
         qnaOpen: true,
         ratingOpen: true,
-        resultPublished: false
+        resultPublished: false,
+        hostWeight: DEFAULT_WEIGHTS.hostWeight,
+        studentWeight: DEFAULT_WEIGHTS.studentWeight
       },
       stats: {
         peakConcurrent: 0,
-        totalJoined: 0
+        totalJoined: 0,
+        totalReactions: 0
       }
     };
 
@@ -276,6 +380,7 @@ class RoomManager {
     }
 
     const activeQuestions = room.questions.filter((q) => !q.answered).length;
+    const currentGroup = room.groups.get(room.currentGroupId);
 
     return {
       roomCode: room.roomCode,
@@ -284,7 +389,10 @@ class RoomManager {
       peakConcurrent: room.stats.peakConcurrent,
       activeQuestions,
       totalQuestions: room.questions.length,
-      totalRatings: room.ratings.size
+      totalRatings: room.ratings.size,
+      totalReactions: room.stats.totalReactions || 0,
+      currentGroupId: room.currentGroupId,
+      currentGroupName: currentGroup ? currentGroup.name : 'Nhóm 1'
     };
   }
 
@@ -300,9 +408,15 @@ class RoomManager {
       author: q.authorName,
       isAnonymous: q.isAnonymous,
       isAnon: q.isAnonymous,
+      category: q.category || 'question',
+      groupId: q.groupId || 'grp_1',
+      groupName: q.groupName || '',
       votes: q.votes,
       pinned: q.pinned,
       answered: q.answered,
+      reply: q.reply || '',
+      repliedBy: q.repliedBy || '',
+      repliedAt: q.repliedAt || null,
       createdAt: q.createdAt
     };
   }
@@ -324,9 +438,9 @@ class RoomManager {
   }
 
   /**
-   * Thêm câu hỏi mới từ sinh viên
+   * Thêm câu hỏi mới từ sinh viên (hỗ trợ gắn Tag phân loại category: question | feedback | bug | tech)
    */
-  addQuestion(roomCode, { content, isAnonymous = false, authorName = 'Sinh viên' }) {
+  addQuestion(roomCode, { content, isAnonymous = false, authorName = 'Sinh viên', category = 'question' }) {
     const room = this.getRoom(roomCode);
     if (!room) {
       return { ok: false, code: 'room_not_found', error: 'Phòng không tồn tại.' };
@@ -342,15 +456,22 @@ class RoomManager {
 
     const cleanedContent = filterBadWords(content);
     const cleanedAuthor = isAnonymous ? 'Ẩn danh' : filterBadWords(authorName);
+    const currentGroup = room.groups.get(room.currentGroupId);
 
     const question = {
       id: `q_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
       content: cleanedContent,
       authorName: cleanedAuthor,
       isAnonymous: Boolean(isAnonymous),
+      category: category || 'question',
+      groupId: room.currentGroupId,
+      groupName: currentGroup ? currentGroup.name : 'Nhóm 1',
       votes: 0,
       pinned: false,
       answered: false,
+      reply: '',
+      repliedBy: '',
+      repliedAt: null,
       createdAt: Date.now(),
       _voters: new Set() // Lưu mã băm thiết bị để chống vote lặp mà vẫn ẩn danh
     };
@@ -358,6 +479,32 @@ class RoomManager {
     room.questions.push(question);
     this.touchRoom(room);
 
+    return {
+      ok: true,
+      question: this._serializeQuestion(question)
+    };
+  }
+
+  /**
+   * Ghi chú câu trả lời chính thức của Host hoặc Nhóm thuyết trình cho một câu hỏi
+   */
+  replyQuestion(roomCode, { questionId, reply, repliedBy = 'Nhóm thuyết trình' }) {
+    const room = this.getRoom(roomCode);
+    if (!room) {
+      return { ok: false, code: 'room_not_found', error: 'Phòng không tồn tại.' };
+    }
+
+    const question = room.questions.find((q) => String(q.id) === String(questionId));
+    if (!question) {
+      return { ok: false, code: 'question_not_found', error: 'Không tìm thấy câu hỏi cần trả lời.' };
+    }
+
+    question.reply = filterBadWords(reply);
+    question.repliedBy = filterBadWords(repliedBy);
+    question.repliedAt = Date.now();
+    question.answered = true;
+
+    this.touchRoom(room);
     return {
       ok: true,
       question: this._serializeQuestion(question)
@@ -434,16 +581,259 @@ class RoomManager {
   }
 
   /**
-   * Ghi nhận phiếu chấm điểm Rubric 1-5 sao cho 4 tiêu chí
-   * (1 phiếu / thiết bị, nếu cùng thiết bị chấm lại sẽ cập nhật phiếu của thiết bị đó)
+   * Thêm một nhóm thuyết trình mới vào danh sách phòng
    */
-  submitRating(roomCode, { scores, deviceId }) {
+  addGroup(roomCode, { name, topic = '', switchImmediately = false }) {
     const room = this.getRoom(roomCode);
     if (!room) {
       return { ok: false, code: 'room_not_found', error: 'Phòng không tồn tại.' };
     }
 
-    if (!room.settings.ratingOpen) {
+    const nextIdx = room.groups.size + 1;
+    const groupId = `grp_${nextIdx}_${crypto.randomBytes(2).toString('hex')}`;
+    const groupObj = {
+      id: groupId,
+      name: filterBadWords(name || `Nhóm ${nextIdx}`),
+      topic: filterBadWords(topic || ''),
+      createdAt: Date.now(),
+      ratings: new Map()
+    };
+
+    room.groups.set(groupId, groupObj);
+
+    if (switchImmediately) {
+      room.currentGroupId = groupId;
+      room.ratings = groupObj.ratings;
+      room.settings.resultPublished = false;
+    }
+
+    this.touchRoom(room);
+    return {
+      ok: true,
+      group: { id: groupObj.id, name: groupObj.name, topic: groupObj.topic },
+      groupsPayload: this.getGroupsPayload(roomCode)
+    };
+  }
+
+  /**
+   * Chuyển sang nhóm thuyết trình khác (hoặc tự động tạo mới nếu truyền tên nhóm chưa có)
+   * Lưu giữ trọn vẹn điểm của nhóm cũ trong Bảng xếp hạng (Leaderboard)
+   */
+  switchGroup(roomCode, { groupId = '', name = '', topic = '' }) {
+    const room = this.getRoom(roomCode);
+    if (!room) {
+      return { ok: false, code: 'room_not_found', error: 'Phòng không tồn tại.' };
+    }
+
+    let targetGroup = null;
+    if (groupId && room.groups.has(groupId)) {
+      targetGroup = room.groups.get(groupId);
+    } else if (name) {
+      for (const grp of room.groups.values()) {
+        if (grp.name.toLowerCase() === name.trim().toLowerCase()) {
+          targetGroup = grp;
+          break;
+        }
+      }
+      if (!targetGroup) {
+        const added = this.addGroup(roomCode, { name, topic, switchImmediately: true });
+        return {
+          ok: true,
+          currentGroupId: room.currentGroupId,
+          groupsPayload: added.groupsPayload
+        };
+      }
+    }
+
+    if (!targetGroup) {
+      return {
+        ok: false,
+        code: 'group_not_found',
+        error: 'Không tìm thấy nhóm thuyết trình yêu cầu.'
+      };
+    }
+
+    room.currentGroupId = targetGroup.id;
+    room.ratings = targetGroup.ratings;
+    room.settings.resultPublished = false; // Ẩn biểu đồ nhóm cũ để bắt đầu chấm nhóm mới
+    this.touchRoom(room);
+
+    return {
+      ok: true,
+      currentGroupId: room.currentGroupId,
+      groupsPayload: this.getGroupsPayload(roomCode)
+    };
+  }
+
+  /**
+   * Tính toán điểm trung bình của 1 bảng ratings Map (tách riêng Giảng viên, Sinh viên & Trọng số)
+   */
+  _computeGroupStats(ratingsMap, settings) {
+    const zeroAvg = { content: 0, presentation: 0, demo: 0, qa: 0, overall: 0 };
+    const totalVotes = ratingsMap ? ratingsMap.size : 0;
+    if (!ratingsMap || totalVotes === 0) {
+      return {
+        totalVotes: 0,
+        studentVotes: 0,
+        hostVotes: 0,
+        averages: { ...zeroAvg },
+        studentAverages: { ...zeroAvg },
+        hostAverages: { ...zeroAvg },
+        weightedAverages: { ...zeroAvg },
+        comments: []
+      };
+    }
+
+    const allSums = { content: 0, presentation: 0, demo: 0, qa: 0 };
+    const studentSums = { content: 0, presentation: 0, demo: 0, qa: 0 };
+    const hostSums = { content: 0, presentation: 0, demo: 0, qa: 0 };
+    let studentVotes = 0;
+    let hostVotes = 0;
+    const comments = [];
+
+    for (const entry of ratingsMap.values()) {
+      const isHost = entry.role === 'host';
+      if (isHost) {
+        hostVotes += 1;
+      } else {
+        studentVotes += 1;
+      }
+
+      for (const key of RUBRIC_CRITERIA) {
+        const val = Number(entry[key]) || 0;
+        allSums[key] += val;
+        if (isHost) {
+          hostSums[key] += val;
+        } else {
+          studentSums[key] += val;
+        }
+      }
+
+      if (entry.comment) {
+        comments.push({
+          comment: entry.comment,
+          role: entry.role || 'student',
+          authorName: entry.authorName || (isHost ? 'Giảng viên' : 'Sinh viên'),
+          overall:
+            Math.round(
+              (((Number(entry.content) || 0) +
+                (Number(entry.presentation) || 0) +
+                (Number(entry.demo) || 0) +
+                (Number(entry.qa) || 0)) /
+                4) *
+                100
+            ) / 100,
+          submittedAt: entry.submittedAt
+        });
+      }
+    }
+
+    const calcAvgObj = (sumsObj, count) => {
+      if (count <= 0) return { ...zeroAvg };
+      const res = {};
+      let sumAvg = 0;
+      for (const key of RUBRIC_CRITERIA) {
+        res[key] = Math.round((sumsObj[key] / count) * 100) / 100;
+        sumAvg += res[key];
+      }
+      res.overall = Math.round((sumAvg / RUBRIC_CRITERIA.length) * 1000) / 1000;
+      return res;
+    };
+
+    const averages = calcAvgObj(allSums, totalVotes);
+    const studentAverages = calcAvgObj(studentSums, studentVotes);
+    const hostAverages = calcAvgObj(hostSums, hostVotes);
+
+    // Nếu cả Giảng viên và Sinh viên đều chấm -> áp dụng công thức trọng số (Mặc định 50% GV + 50% SV)
+    const hW = typeof settings?.hostWeight === 'number' ? settings.hostWeight : 0.5;
+    const sW = typeof settings?.studentWeight === 'number' ? settings.studentWeight : 0.5;
+    let weightedAverages = { ...averages };
+
+    if (hostVotes > 0 && studentVotes > 0) {
+      const wRes = {};
+      let wSum = 0;
+      for (const key of RUBRIC_CRITERIA) {
+        wRes[key] = Math.round((hostAverages[key] * hW + studentAverages[key] * sW) * 100) / 100;
+        wSum += wRes[key];
+      }
+      wRes.overall = Math.round((wSum / RUBRIC_CRITERIA.length) * 1000) / 1000;
+      weightedAverages = wRes;
+    } else if (hostVotes > 0) {
+      weightedAverages = { ...hostAverages };
+    } else if (studentVotes > 0) {
+      weightedAverages = { ...studentAverages };
+    }
+
+    comments.sort((a, b) => b.submittedAt - a.submittedAt);
+
+    return {
+      totalVotes,
+      studentVotes,
+      hostVotes,
+      averages,
+      studentAverages,
+      hostAverages,
+      weightedAverages,
+      comments: comments.slice(0, 20)
+    };
+  }
+
+  /**
+   * Trả về danh sách các Nhóm thuyết trình và Bảng xếp hạng (Leaderboard) sắp xếp theo điểm cao nhất
+   */
+  getGroupsPayload(roomCode) {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    const groups = [];
+    for (const grp of room.groups.values()) {
+      const stats = this._computeGroupStats(grp.ratings, room.settings);
+      groups.push({
+        id: grp.id,
+        name: grp.name,
+        topic: grp.topic,
+        isCurrent: grp.id === room.currentGroupId,
+        totalVotes: stats.totalVotes,
+        studentVotes: stats.studentVotes,
+        hostVotes: stats.hostVotes,
+        overallScore: stats.averages.overall,
+        weightedScore: stats.weightedAverages.overall,
+        averages: stats.averages,
+        weightedAverages: stats.weightedAverages
+      });
+    }
+
+    const leaderboard = [...groups]
+      .sort((a, b) => {
+        if (b.weightedScore !== a.weightedScore) return b.weightedScore - a.weightedScore;
+        return b.totalVotes - a.totalVotes;
+      })
+      .map((item, index) => ({
+        rank: index + 1,
+        ...item
+      }));
+
+    const currentGroup = groups.find((g) => g.id === room.currentGroupId) || groups[0];
+
+    return {
+      currentGroupId: room.currentGroupId,
+      currentGroup,
+      groups,
+      leaderboard
+    };
+  }
+
+  /**
+   * Ghi nhận phiếu chấm điểm Rubric 1-5 sao cho 4 tiêu chí kèm nhận xét phản biện & vai trò (host | student)
+   * (1 phiếu / thiết bị / nhóm; nếu chấm lại sẽ cập nhật phiếu của thiết bị đó)
+   */
+  submitRating(roomCode, { scores, deviceId, role = 'student', comment = '', authorName = '' }) {
+    const room = this.getRoom(roomCode);
+    if (!room) {
+      return { ok: false, code: 'room_not_found', error: 'Phòng không tồn tại.' };
+    }
+
+    if (!room.settings.ratingOpen && role !== 'host') {
       return {
         ok: false,
         code: 'rating_closed',
@@ -451,14 +841,23 @@ class RoomManager {
       };
     }
 
-    const voterHash = this._hashDevice(room, deviceId || 'unknown');
+    const voterHash = this._hashDevice(room, `${role}:${deviceId || 'unknown'}`);
     const isUpdate = room.ratings.has(voterHash);
+    const cleanedComment = comment ? filterBadWords(comment) : '';
+    const cleanedAuthor = authorName
+      ? filterBadWords(authorName)
+      : role === 'host'
+        ? 'Giảng viên'
+        : 'Sinh viên';
 
     room.ratings.set(voterHash, {
       content: scores.content,
       presentation: scores.presentation,
       demo: scores.demo,
       qa: scores.qa,
+      role: role === 'host' ? 'host' : 'student',
+      comment: cleanedComment,
+      authorName: cleanedAuthor,
       submittedAt: Date.now()
     });
 
@@ -473,46 +872,133 @@ class RoomManager {
   }
 
   /**
-   * Tính điểm trung bình từng tiêu chí và điểm tổng hợp của phòng
+   * Tính điểm trung bình từng tiêu chí, điểm trọng số GV/SV, nhận xét & Bảng xếp hạng của phòng
    */
   getRatingSummary(roomCode) {
     const room = this.getRoom(roomCode);
     if (!room) return null;
 
-    const totalVotes = room.ratings.size;
-    if (totalVotes === 0) {
-      return {
-        totalVotes: 0,
-        published: room.settings.resultPublished,
-        averages: {
-          content: 0,
-          presentation: 0,
-          demo: 0,
-          qa: 0,
-          overall: 0
-        }
-      };
-    }
-
-    const sums = { content: 0, presentation: 0, demo: 0, qa: 0 };
-    for (const entry of room.ratings.values()) {
-      for (const key of RUBRIC_CRITERIA) {
-        sums[key] += Number(entry[key]) || 0;
-      }
-    }
-
-    const averages = {};
-    let totalAvgSum = 0;
-    for (const key of RUBRIC_CRITERIA) {
-      averages[key] = Math.round((sums[key] / totalVotes) * 100) / 100;
-      totalAvgSum += averages[key];
-    }
-    averages.overall = Math.round((totalAvgSum / RUBRIC_CRITERIA.length) * 1000) / 1000;
+    const currentGroup = room.groups.get(room.currentGroupId);
+    const stats = this._computeGroupStats(room.ratings, room.settings);
+    const groupsPayload = this.getGroupsPayload(roomCode);
 
     return {
-      totalVotes,
+      groupId: room.currentGroupId,
+      groupName: currentGroup ? currentGroup.name : 'Nhóm 1',
+      totalVotes: stats.totalVotes,
+      studentVotes: stats.studentVotes,
+      hostVotes: stats.hostVotes,
       published: room.settings.resultPublished,
-      averages
+      averages: stats.averages,
+      studentAverages: stats.studentAverages,
+      hostAverages: stats.hostAverages,
+      weightedAverages: stats.weightedAverages,
+      comments: stats.comments,
+      leaderboard: groupsPayload ? groupsPayload.leaderboard : []
+    };
+  }
+
+  /**
+   * Cập nhật trạng thái trình chiếu Slide đồng bộ (slide.sync)
+   */
+  updateSlideState(roomCode, { action = 'sync', page, total, url, title, slides }) {
+    const room = this.getRoom(roomCode);
+    if (!room) {
+      return { ok: false, code: 'room_not_found', error: 'Phòng không tồn tại.' };
+    }
+
+    const st = room.slideState;
+
+    if (Array.isArray(slides) && slides.length > 0) {
+      st.slides = slides;
+      st.total = slides.length;
+      st.page = 1;
+    }
+
+    if (typeof total === 'number' && total >= 1) {
+      st.total = total;
+    }
+    if (typeof url === 'string') {
+      st.url = url;
+    }
+    if (typeof title === 'string' && title) {
+      st.title = title;
+    }
+
+    if (action === 'next') {
+      st.page = Math.min(st.total, st.page + 1);
+    } else if (action === 'prev') {
+      st.page = Math.max(1, st.page - 1);
+    } else if (typeof page === 'number' && page >= 1) {
+      st.page = Math.min(st.total, Math.max(1, page));
+    }
+
+    const currentSlideObj =
+      Array.isArray(st.slides) && st.slides[st.page - 1] ? st.slides[st.page - 1] : null;
+
+    this.touchRoom(room);
+    return {
+      ok: true,
+      slideState: {
+        ...st,
+        currentSlide: currentSlideObj
+      }
+    };
+  }
+
+  /**
+   * Cập nhật tọa độ con trỏ Laser đỏ thời gian thực (slide.laser)
+   */
+  updateLaserState(roomCode, laserData) {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    room.slideState.laser = {
+      active: Boolean(laserData.active),
+      x: Number(laserData.x) || 0,
+      y: Number(laserData.y) || 0,
+      color: laserData.color || '#ef4444',
+      updatedAt: Date.now()
+    };
+
+    return room.slideState.laser;
+  }
+
+  /**
+   * Cập nhật trạng thái khung Camera Diễn giả PiP trên màn chiếu (stage.camera)
+   */
+  updateCameraState(roomCode, cameraData) {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    room.cameraState = {
+      ...room.cameraState,
+      ...cameraData,
+      updatedAt: Date.now()
+    };
+
+    this.touchRoom(room);
+    return { ...room.cameraState };
+  }
+
+  /**
+   * Ghi nhận lượt thả cảm xúc trực tiếp (reaction.send)
+   */
+  recordReaction(roomCode, { emoji = '👏', authorName = 'Sinh viên' }) {
+    const room = this.getRoom(roomCode);
+    if (!room) return null;
+
+    room.stats.totalReactions = (room.stats.totalReactions || 0) + 1;
+    room.reactionCounts[emoji] = (room.reactionCounts[emoji] || 0) + 1;
+    this.touchRoom(room);
+
+    return {
+      id: `rx_${Date.now()}_${crypto.randomBytes(2).toString('hex')}`,
+      emoji,
+      authorName: filterBadWords(authorName),
+      totalReactions: room.stats.totalReactions,
+      reactionCounts: { ...room.reactionCounts },
+      timestamp: Date.now()
     };
   }
 
@@ -603,6 +1089,11 @@ class RoomManager {
     if (!room) return null;
 
     const showRatingSummary = role === 'host' || room.settings.resultPublished;
+    const groupsPayload = this.getGroupsPayload(roomCode);
+    const currentSlideObj =
+      Array.isArray(room.slideState.slides) && room.slideState.slides[room.slideState.page - 1]
+        ? room.slideState.slides[room.slideState.page - 1]
+        : null;
 
     return {
       roomCode: room.roomCode,
@@ -612,7 +1103,17 @@ class RoomManager {
       presence: this.getPresencePayload(roomCode),
       questions: this.getSortedQuestions(roomCode),
       timer: this.timerManager ? this.timerManager.getSyncPayload(roomCode) : null,
-      ratingSummary: showRatingSummary ? this.getRatingSummary(roomCode) : null
+      ratingSummary: showRatingSummary ? this.getRatingSummary(roomCode) : null,
+      groups: groupsPayload,
+      slide: {
+        ...room.slideState,
+        currentSlide: currentSlideObj
+      },
+      camera: { ...room.cameraState },
+      reactions: {
+        totalReactions: room.stats.totalReactions || 0,
+        counts: { ...room.reactionCounts }
+      }
     };
   }
 
@@ -629,37 +1130,78 @@ class RoomManager {
     };
 
     const summary = this.getRatingSummary(roomCode);
+    const groupsPayload = this.getGroupsPayload(roomCode);
     const questions = this.getSortedQuestions(roomCode);
     const lines = [];
 
     lines.push('BAO CAO BUOI THUYET TRINH - CLASSLIVE PRO');
     lines.push(`Ma Phong,${escapeCsv(room.roomCode)}`);
     lines.push(`Tieu De,${escapeCsv(room.title)}`);
+    lines.push(`Nhom Hien Tai,${escapeCsv(summary.groupName)}`);
     lines.push(`So Nguoi Tham Gia Dinh (Peak),${room.stats.peakConcurrent}`);
     lines.push(`Tong So Phieu Cham Rubric,${summary.totalVotes}`);
+    lines.push(`Tong Luot Tha Cam Xuc (Reactions),${room.stats.totalReactions || 0}`);
     lines.push('');
 
     lines.push('BANG DIEM RUBRIC TRUNG BINH (THANG 5 SAO)');
-    lines.push('Tieu Chi,Diem Trung Binh');
-    lines.push(`1. Noi dung bao cao,${summary.averages.content}`);
-    lines.push(`2. Ky nang trinh bay,${summary.averages.presentation}`);
-    lines.push(`3. San pham / Demo thuc te,${summary.averages.demo}`);
-    lines.push(`4. Tra loi phan bien,${summary.averages.qa}`);
-    lines.push(`DIEM TONG HOP,${summary.averages.overall}`);
+    lines.push('Tieu Chi,Diem Trung Binh,Diem Giang Vien,Diem Sinh Vien,Diem Trong So');
+    lines.push(`1. Noi dung bao cao,${summary.averages.content},${summary.hostAverages.content},${summary.studentAverages.content},${summary.weightedAverages.content}`);
+    lines.push(`2. Ky nang trinh bay,${summary.averages.presentation},${summary.hostAverages.presentation},${summary.studentAverages.presentation},${summary.weightedAverages.presentation}`);
+    lines.push(`3. San pham / Demo thuc te,${summary.averages.demo},${summary.hostAverages.demo},${summary.studentAverages.demo},${summary.weightedAverages.demo}`);
+    lines.push(`4. Tra loi phan bien,${summary.averages.qa},${summary.hostAverages.qa},${summary.studentAverages.qa},${summary.weightedAverages.qa}`);
+    lines.push(`DIEM TONG HOP,${summary.averages.overall},${summary.hostAverages.overall},${summary.studentAverages.overall},${summary.weightedAverages.overall}`);
     lines.push('');
 
+    if (groupsPayload && groupsPayload.leaderboard.length > 0) {
+      lines.push('BANG XEP HANG CAC NHOM THUYET TRINH (LEADERBOARD)');
+      lines.push('Hang,Ten Nhom,Chu De,So Phieu,Diem Trung Binh,Diem Trong So');
+      groupsPayload.leaderboard.forEach((grp) => {
+        lines.push(
+          [
+            grp.rank,
+            escapeCsv(grp.name),
+            escapeCsv(grp.topic),
+            grp.totalVotes,
+            grp.overallScore,
+            grp.weightedScore
+          ].join(',')
+        );
+      });
+      lines.push('');
+    }
+
+    if (summary.comments && summary.comments.length > 0) {
+      lines.push('NHAN XET VA GOP Y PHAN BIEN RUBRIC');
+      lines.push('STT,Vai Tro,Nguoi Nhan Xet,Diem TB,Noi Dung Nhan Xet');
+      summary.comments.forEach((c, idx) => {
+        lines.push(
+          [
+            idx + 1,
+            escapeCsv(c.role === 'host' ? 'Giang vien' : 'Sinh vien'),
+            escapeCsv(c.authorName),
+            c.overall,
+            escapeCsv(c.comment)
+          ].join(',')
+        );
+      });
+      lines.push('');
+    }
+
     lines.push('DANH SACH CAU HOI HOI DAP (SAP XEP THEO LUOT VOTE)');
-    lines.push('STT,Nguoi Hoi,Noi Dung Cau Hoi,Luot Vote,Da Ghim,Da Tra Loi,Thoi Gian');
+    lines.push('STT,Nhom,Phan Loai,Nguoi Hoi,Noi Dung Cau Hoi,Luot Vote,Da Ghim,Trang Thai,Cau Tra Loi / Ghi Chu,Thoi Gian');
     questions.forEach((q, idx) => {
       const timeStr = new Date(q.createdAt).toISOString();
       lines.push(
         [
           idx + 1,
+          escapeCsv(q.groupName || 'Nhom 1'),
+          escapeCsv(q.category || 'question'),
           escapeCsv(q.authorName),
           escapeCsv(q.content),
           q.votes,
           q.pinned ? 'Co' : 'Khong',
           q.answered ? 'Da tra loi' : 'Cho tra loi',
+          escapeCsv(q.reply || ''),
           escapeCsv(timeStr)
         ].join(',')
       );
