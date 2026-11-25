@@ -1,0 +1,1185 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClassLive Pro - Host Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        ::-webkit-scrollbar { width: 5px; height: 5px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+
+        @keyframes toastSlideIn {
+            from { opacity: 0; transform: translate(-50%, -12px) scale(0.96); }
+            to { opacity: 1; transform: translate(-50%, 0) scale(1); }
+        }
+        .toast-enter {
+            animation: toastSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+    </style>
+</head>
+<body class="bg-slate-100 p-3 md:p-6 min-h-screen flex justify-center items-start font-sans text-slate-800">
+
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="fixed top-4 left-1/2 -translate-x-1/2 z-50 flex flex-col items-center space-y-2 w-[92%] max-w-md pointer-events-none"></div>
+
+    <div class="w-full max-w-5xl bg-white rounded-2xl shadow-xl border border-slate-200/80 p-4 md:p-6 space-y-5 my-2">
+
+        <!-- Header & Quản lý Phòng / Token -->
+        <div class="border-b border-slate-200 pb-4 flex flex-wrap items-center justify-between gap-3">
+            <div>
+                <h1 class="text-xl md:text-2xl font-extrabold text-slate-800">🎛️ Bảng Điều Khiển Host (Giảng Viên / Nhóm Trưởng)</h1>
+                <p class="text-xs text-slate-500 mt-0.5">Điều phối Q&A, Đồng hồ pha trình bày, Slide PPT & Laser, Đa nhóm Rubric, Khảo sát CSAT & Xuất CSV</p>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+                <span id="hostNetDot" class="w-2.5 h-2.5 rounded-full bg-amber-400"></span>
+                <span id="hostNetText" class="text-[11px] font-mono font-semibold text-slate-600">Chờ kết nối...</span>
+                <span class="text-xs bg-indigo-50 text-indigo-700 px-3 py-1.5 rounded-lg font-mono font-bold border border-indigo-200">
+                    PIN: <span id="hostPinLabel">4829</span>
+                </span>
+            </div>
+        </div>
+
+        <!-- Thanh Kết nối & Tạo phòng mới -->
+        <div class="bg-slate-50 p-3.5 rounded-xl border border-slate-200 grid grid-cols-1 md:grid-cols-12 gap-2.5 items-end">
+            <div class="md:col-span-3">
+                <label class="text-[11px] font-bold text-slate-600 block mb-1">Mã PIN phòng (4-8 ký tự)</label>
+                <input type="text" id="hostPinInput" maxlength="8" placeholder="VD: 4829" class="w-full px-3 py-2 text-xs font-mono font-bold uppercase bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600">
+            </div>
+            <div class="md:col-span-4">
+                <label class="text-[11px] font-bold text-slate-600 block mb-1">Host Token (Tự cấp khi tạo phòng mới)</label>
+                <input type="text" id="hostTokenInput" placeholder="Để trống nếu là Host đầu tiên của phòng" class="w-full px-3 py-2 text-xs font-mono bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600">
+            </div>
+            <div class="md:col-span-5 flex flex-wrap gap-2">
+                <button type="button" onclick="createNewRoom()" class="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs">
+                    ➕ Tạo Phòng Mới
+                </button>
+                <button type="button" onclick="connectHostWs()" class="flex-1 bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs">
+                    🔌 Kết Nối / Vào Phòng
+                </button>
+                <a id="exportCsvLink" href="/api/rooms/4829/export.csv" target="_blank" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg transition shadow-xs flex items-center">
+                    📥 CSV
+                </a>
+            </div>
+        </div>
+
+        <!-- 4 Ô Thống Kê Realtime -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                <span class="text-[11px] text-slate-500 font-semibold">Thiết Bị Online</span>
+                <p id="onlineCount" class="text-2xl font-extrabold text-indigo-600 mt-1">0</p>
+                <span class="text-[10px] text-slate-400">Đỉnh: <strong id="peakOnlineText">0</strong> · Reactions: <strong id="totalReactionsText">0</strong></span>
+            </div>
+            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                <span class="text-[11px] text-slate-500 font-semibold">Câu Hỏi Chưa Trả Lời</span>
+                <p id="activeQuestions" class="text-2xl font-extrabold text-slate-800 mt-1">0</p>
+                <span class="text-[10px] text-slate-400">Tổng câu hỏi: <strong id="totalQuestionsText">0</strong></span>
+            </div>
+            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                <span class="text-[11px] text-slate-500 font-semibold">Phiếu Rubric Nhóm Hiện Tại</span>
+                <p id="ratingCount" class="text-2xl font-extrabold text-emerald-600 mt-1">0</p>
+                <span id="currentGroupBadgeText" class="text-[10px] text-indigo-600 font-semibold truncate block">Nhóm 1</span>
+            </div>
+            <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                <span class="text-[11px] text-slate-500 font-semibold">Khảo Sát CSAT</span>
+                <p id="surveySummaryText" class="text-lg font-extrabold text-amber-600 mt-1">--</p>
+                <span id="surveyDetailText" class="text-[10px] text-slate-400">0 lượt phản hồi</span>
+            </div>
+        </div>
+
+        <!-- Hàng Điều Khiển Khóa/Mở, Công Bố Rubric & Đẩy Khảo Sát CSAT -->
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+            <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                    <span class="text-xs font-bold text-slate-700 block">Nhận câu hỏi Q&A</span>
+                    <span class="text-[10px] text-slate-400">Khóa/mở trên máy SV</span>
+                </div>
+                <button id="qnaToggleBtn" onclick="toggleFeature('question', this)" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition">Đang Mở</button>
+            </div>
+
+            <div class="flex justify-between items-center p-3 bg-slate-50 rounded-xl border border-slate-200">
+                <div>
+                    <span class="text-xs font-bold text-slate-700 block">Chấm điểm Rubric</span>
+                    <span class="text-[10px] text-slate-400">Khóa/mở phiếu chấm</span>
+                </div>
+                <button id="rubricToggleBtn" onclick="toggleFeature('rating', this)" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition">Đang Mở</button>
+            </div>
+
+            <div class="flex justify-between items-center p-3 bg-indigo-50/70 rounded-xl border border-indigo-200">
+                <div>
+                    <span class="text-xs font-bold text-indigo-950 block">Công bố Rubric</span>
+                    <span class="text-[10px] text-indigo-600">Bung biểu đồ lên Projector</span>
+                </div>
+                <button id="publishBtn" onclick="publishRubric()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition">🚀 Công Bố</button>
+            </div>
+
+            <div class="flex justify-between items-center p-3 bg-amber-50/80 rounded-xl border border-amber-200">
+                <div>
+                    <span class="text-xs font-bold text-amber-950 block">Khảo sát CSAT</span>
+                    <span class="text-[10px] text-amber-700">Đẩy popup 1-5★ tới SV</span>
+                </div>
+                <button onclick="triggerSurvey()" class="bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs px-3 py-1.5 rounded-lg font-bold transition">📋 Đẩy Survey</button>
+            </div>
+        </div>
+
+        <!-- Khu vực 2 cột: Đồng hồ + Slide/PPT/Laser/Camera & Quản lý Đa nhóm + Chấm điểm của Host -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+            <!-- Cột trái: Đồng hồ đếm ngược + Slide Sync + PPT Upload + Laser + Camera PiP -->
+            <div class="space-y-4">
+                <!-- Đồng hồ 15 phút & Pha trình bày -->
+                <div class="bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 space-y-3">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <span class="text-[10px] uppercase tracking-wider text-slate-400 font-bold">Đồng hồ đồng bộ (Server-Authoritative)</span>
+                            <div class="flex items-baseline gap-2.5 mt-0.5">
+                                <span id="hostTimerDisplay" class="text-3xl font-black font-mono text-emerald-400">15:00</span>
+                                <span id="hostTimerPhaseBadge" class="text-[11px] font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">Pha: Trình bày</span>
+                                <span id="hostTimerStatusBadge" class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-300 border border-slate-700">stopped</span>
+                            </div>
+                        </div>
+                        <div class="flex gap-1.5">
+                            <button type="button" onclick="setTimerPhase('presentation')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700">🎤 Trình bày</button>
+                            <button type="button" onclick="setTimerPhase('qna')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700">💬 Phản biện</button>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap gap-1.5">
+                        <button type="button" onclick="controlTimer('start')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-emerald-600 hover:bg-emerald-700">▶ Bắt đầu</button>
+                        <button type="button" onclick="controlTimer('pause')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-amber-500 hover:bg-amber-600 text-slate-950">⏸ Tạm dừng</button>
+                        <button type="button" onclick="controlTimer('resume')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-sky-600 hover:bg-sky-700">⏯ Tiếp tục</button>
+                        <button type="button" onclick="controlTimer('reset')" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-700 hover:bg-slate-600">↺ Đặt lại</button>
+                        <button type="button" onclick="addTimerTime(60)" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700">+1p</button>
+                        <button type="button" onclick="addTimerTime(-60)" class="px-2.5 py-1.5 rounded-lg text-xs font-bold bg-rose-600 hover:bg-rose-700">-1p</button>
+                    </div>
+                </div>
+
+                <!-- Điều khiển Slide, Tải/Gỡ PPT, Con trỏ Laser & Camera PiP -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-700">🖥️ Slide Đồng Bộ, PPT & Laser</h3>
+                            <p id="hostActiveDeckLabel" class="text-[11px] text-slate-500 truncate">Đang dùng: Slide mặc định hệ thống</p>
+                        </div>
+                        <span id="hostSlidePageBadge" class="text-xs font-mono font-bold bg-indigo-100 text-indigo-700 px-2.5 py-0.5 rounded-md shrink-0">Slide 1 / 5</span>
+                    </div>
+
+                    <!-- Tải file .pptx từ máy & Gỡ PPT khi đổi nhóm -->
+                    <div class="bg-white p-2.5 rounded-xl border border-slate-200 space-y-2">
+                        <div class="flex flex-wrap items-center gap-2">
+                            <input type="file" id="pptFileInput" accept=".pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation" onchange="handlePptUpload(event)" class="hidden">
+                            <button type="button" onclick="document.getElementById('pptFileInput').click()" class="flex-1 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 text-xs font-bold px-3 py-1.5 rounded-lg transition truncate">
+                                📂 Tải file .PPTX từ máy
+                            </button>
+                            <button type="button" id="removePptBtn" onclick="removeCurrentPpt()" class="hidden bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-xs font-bold px-3 py-1.5 rounded-lg transition shrink-0">
+                                🗑 Gỡ PPT
+                            </button>
+                        </div>
+                        <div class="flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
+                            <span id="pptParseStatus" class="truncate">Hỗ trợ file .pptx (tự tách từng trang slide)</span>
+                            <label class="flex items-center gap-1.5 cursor-pointer select-none shrink-0">
+                                <input type="checkbox" id="autoClearPptOnSwitch" checked class="rounded text-indigo-600 w-3.5 h-3.5">
+                                <span>Tự gỡ PPT khi đổi nhóm</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center justify-between gap-2">
+                        <button type="button" onclick="syncSlide('prev')" class="flex-1 py-2 rounded-lg bg-white hover:bg-slate-100 border border-slate-200 text-xs font-bold">◀ Trang trước</button>
+                        <button type="button" onclick="syncSlide('next')" class="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Trang sau ▶</button>
+                    </div>
+
+                    <!-- Bàn di con trỏ Laser chuẩn hóa (0..1) -->
+                    <div>
+                        <div class="flex items-center justify-between mb-1">
+                            <span class="text-[11px] font-semibold text-slate-600">🔴 Bàn di chiếu Laser lên màn hình Projector (Di chuột hoặc click)</span>
+                            <button type="button" onclick="toggleLaser(false)" class="text-[10px] font-bold text-rose-600 hover:underline">Tắt Laser</button>
+                        </div>
+                        <div id="laserPad"
+                             onmousemove="handleLaserMove(event)"
+                             onmouseleave="toggleLaser(false)"
+                             onclick="handleLaserMove(event)"
+                             class="relative h-24 w-full rounded-xl bg-slate-900 border border-slate-700 overflow-hidden cursor-crosshair select-none flex items-center justify-center">
+                            <span class="text-[11px] font-mono text-slate-500 pointer-events-none">Vùng chiếu Laser (0..1) · <span id="laserCoordsLabel">Tắt</span></span>
+                            <div id="laserDotPreview" class="hidden w-3.5 h-3.5 rounded-full bg-rose-500 ring-4 ring-rose-500/30 -translate-x-1/2 -translate-y-1/2 absolute pointer-events-none"></div>
+                        </div>
+                    </div>
+
+                    <!-- Điều khiển khung Camera Diễn giả PiP -->
+                    <div class="flex flex-wrap items-center justify-between gap-2 pt-1 border-t border-slate-200">
+                        <span class="text-xs font-semibold text-slate-700">📷 Khung Camera Diễn giả (PiP)</span>
+                        <div class="flex gap-1.5">
+                            <button type="button" id="camToggleBtn" onclick="toggleStageCamera()" class="px-3 py-1.5 rounded-lg text-xs font-bold bg-slate-800 hover:bg-slate-900 text-white">Bật Camera</button>
+                            <select id="camPosSelect" onchange="updateStageCamera()" class="px-2 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold">
+                                <option value="bottom-right">Góc dưới phải</option>
+                                <option value="bottom-left">Góc dưới trái</option>
+                                <option value="top-right">Góc trên phải</option>
+                                <option value="top-left">Góc trên trái</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Cột phải: Quản lý Đa nhóm & Bảng xếp hạng + Chấm điểm Rubric của Host -->
+            <div class="space-y-4">
+                <!-- Đa nhóm thuyết trình & Bảng xếp hạng -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-3">
+                    <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-700">🏆 Quản Lý Đa Nhóm Thuyết Trình & Xếp Hạng</h3>
+
+                    <div class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                        <input type="text" id="newGroupNameInput" placeholder="Tên nhóm mới (VD: Nhóm 2)" class="sm:col-span-5 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600">
+                        <input type="text" id="newGroupTopicInput" placeholder="Đề tài / Chủ đề..." class="sm:col-span-4 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-600">
+                        <button type="button" onclick="addAndSwitchGroup()" class="sm:col-span-3 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-1.5 rounded-lg transition">+ Thêm & Chuyển</button>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <select id="groupSwitchSelect" class="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-semibold"></select>
+                        <button type="button" onclick="switchSelectedGroup()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition">Chuyển nhóm</button>
+                    </div>
+
+                    <div id="hostLeaderboardBox" class="space-y-1.5 max-h-32 overflow-y-auto pt-1">
+                        <p class="text-[11px] text-slate-400 italic">Chưa có dữ liệu bảng xếp hạng nhóm.</p>
+                    </div>
+                </div>
+
+                <!-- Giảng viên / Host chấm điểm Rubric 4 tiêu chí (Trọng số 50% GV) -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 space-y-2.5">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-xs font-extrabold uppercase tracking-wider text-slate-700">⭐ Điểm Rubric Của Giảng Viên (Trọng số 50%)</h3>
+                        <span id="hostRubricAvgBadge" class="text-xs font-mono font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">TB: --</span>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2 text-xs">
+                        <div class="bg-white p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                            <span class="font-semibold text-slate-700">1. Nội dung</span>
+                            <select id="hostScoreContent" class="font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
+                                <option value="5">5 ★</option><option value="4">4 ★</option><option value="3">3 ★</option><option value="2">2 ★</option><option value="1">1 ★</option>
+                            </select>
+                        </div>
+                        <div class="bg-white p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                            <span class="font-semibold text-slate-700">2. Trình bày</span>
+                            <select id="hostScorePresentation" class="font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
+                                <option value="5">5 ★</option><option value="4">4 ★</option><option value="3">3 ★</option><option value="2">2 ★</option><option value="1">1 ★</option>
+                            </select>
+                        </div>
+                        <div class="bg-white p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                            <span class="font-semibold text-slate-700">3. Sản phẩm/Demo</span>
+                            <select id="hostScoreDemo" class="font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
+                                <option value="5">5 ★</option><option value="4">4 ★</option><option value="3">3 ★</option><option value="2">2 ★</option><option value="1">1 ★</option>
+                            </select>
+                        </div>
+                        <div class="bg-white p-2 rounded-lg border border-slate-200 flex items-center justify-between">
+                            <span class="font-semibold text-slate-700">4. Phản biện Q&A</span>
+                            <select id="hostScoreQa" class="font-bold text-indigo-600 bg-slate-50 border border-slate-200 rounded px-1.5 py-0.5">
+                                <option value="5">5 ★</option><option value="4">4 ★</option><option value="3">3 ★</option><option value="2">2 ★</option><option value="1">1 ★</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="flex gap-2">
+                        <input type="text" id="hostRubricComment" placeholder="Nhận xét tổng kết của Giảng viên cho nhóm..." class="flex-1 px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-emerald-600">
+                        <button type="button" onclick="submitHostRubric()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3.5 py-1.5 rounded-lg transition">Lưu điểm GV</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Điều phối Câu hỏi Q&A (Ghim, Ghi chú trả lời, Đánh dấu đã trả lời, Xóa) -->
+        <div class="space-y-2.5 pt-2 border-t border-slate-200">
+            <div class="flex items-center justify-between">
+                <h3 class="text-sm font-extrabold text-slate-800">💬 Điều Phối Câu Hỏi Hỏi Đáp (Q&A)</h3>
+                <span class="text-[11px] text-slate-400">Ghim câu hỏi sẽ đẩy lên Spotlight của Student & Projector</span>
+            </div>
+            <div id="hostQuestionList" class="space-y-2.5 max-h-80 overflow-y-auto pr-1">
+                <p class="text-xs text-slate-400 italic py-4 text-center">Chưa có câu hỏi nào trong phòng.</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const DEFAULT_TIMER_SEC = 900;
+
+        let ws = null;
+        let seq = 1;
+        let currentPin = '4829';
+        let hostToken = '';
+        let qnaOpen = true;
+        let ratingOpen = true;
+        let questions = [];
+        let groupsList = [];
+        let currentGroupId = 'grp_1';
+        let reconnectTimer = null;
+        let lastLaserSentAt = 0;
+        let lastToastKey = '';
+        let lastToastAt = 0;
+
+        // Trạng thái slide PPT trên Host
+        let hostSlides = [];
+        let hostCurrentPage = 1;
+        let hostDeckTitle = 'Slide mặc định hệ thống';
+        let isCustomPptLoaded = false;
+
+        let timerState = {
+            status: 'stopped',
+            phase: 'presentation',
+            remainingSec: DEFAULT_TIMER_SEC,
+            durationSec: DEFAULT_TIMER_SEC,
+            lastSyncedAt: Date.now()
+        };
+        let timerTickInterval = null;
+
+        const TAG_LABELS = {
+            question: '❓ Chất vấn',
+            feedback: '💡 Góp ý',
+            bug: '🐞 Lỗi Demo',
+            tech: '⚙️ Kỹ thuật'
+        };
+
+        window.onload = () => {
+            const params = new URLSearchParams(window.location.search);
+            const urlPin = (params.get('pin') || localStorage.getItem('host_pin') || '4829').toUpperCase();
+            const savedToken = params.get('token') || localStorage.getItem('host_token') || '';
+
+            currentPin = urlPin;
+            hostToken = savedToken;
+
+            document.getElementById('hostPinInput').value = currentPin;
+            document.getElementById('hostTokenInput').value = hostToken;
+            updatePinDisplay(currentPin);
+            updateHostDeckUi();
+            renderTimerDisplay();
+            startClientTimerTicker();
+            connectHostWs();
+        };
+
+        function updatePinDisplay(pin) {
+            currentPin = pin;
+            document.getElementById('hostPinLabel').textContent = pin;
+            document.getElementById('exportCsvLink').href = `/api/rooms/${encodeURIComponent(pin)}/export.csv`;
+            localStorage.setItem('host_pin', pin);
+        }
+
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            if (!container) return;
+
+            const normalizedKey = String(message || '').replace(/\d+\s*giây/gi, 'Ns');
+            const now = Date.now();
+            if (normalizedKey === lastToastKey && now - lastToastAt < 1800) {
+                return;
+            }
+            lastToastKey = normalizedKey;
+            lastToastAt = now;
+
+            while (container.children.length >= 2) {
+                container.firstElementChild.remove();
+            }
+
+            const styles = {
+                success: 'bg-emerald-600 text-white border-emerald-500',
+                error: 'bg-rose-600 text-white border-rose-500',
+                warning: 'bg-amber-500 text-slate-950 border-amber-400',
+                info: 'bg-slate-800 text-white border-slate-700'
+            };
+            const el = document.createElement('div');
+            el.className = `toast-enter pointer-events-auto px-3.5 py-2 rounded-xl shadow-lg border text-xs font-semibold ${styles[type] || styles.info}`;
+            el.textContent = message;
+            container.appendChild(el);
+            setTimeout(() => {
+                el.style.opacity = '0';
+                el.style.transition = 'opacity 0.2s ease';
+                setTimeout(() => el.remove(), 220);
+            }, 2400);
+        }
+
+        function getWsUrl() {
+            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            if (!location.host || location.port === '5500' || location.port === '5173') {
+                return `${wsProto}//${location.hostname || 'localhost'}:8080/ws`;
+            }
+            return `${wsProto}//${location.host}/ws`;
+        }
+
+        function setHostNetStatus(status) {
+            const dot = document.getElementById('hostNetDot');
+            const txt = document.getElementById('hostNetText');
+            if (status === 'online') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-emerald-500';
+                txt.textContent = 'Host Online';
+            } else if (status === 'connecting') {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping';
+                txt.textContent = 'Đang kết nối...';
+            } else {
+                dot.className = 'w-2.5 h-2.5 rounded-full bg-rose-500';
+                txt.textContent = 'Mất kết nối';
+            }
+        }
+
+        function sendHostMsg(type, payload = {}) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) {
+                showToast('Chưa kết nối tới WebSocket Server!', 'warning');
+                return false;
+            }
+            ws.send(JSON.stringify({
+                type,
+                roomCode: currentPin,
+                seq: seq++,
+                timestamp: Date.now(),
+                payload: {
+                    ...payload,
+                    hostToken: hostToken || undefined
+                }
+            }));
+            return true;
+        }
+
+        async function createNewRoom() {
+            try {
+                const res = await fetch('/api/rooms', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: 'Phòng Thuyết Trình ClassLive Pro' })
+                });
+                const data = await res.json();
+                if (!res.ok) {
+                    showToast(data.error || 'Không tạo được phòng mới!', 'error');
+                    return;
+                }
+                currentPin = data.roomCode;
+                hostToken = data.hostToken;
+                document.getElementById('hostPinInput').value = currentPin;
+                document.getElementById('hostTokenInput').value = hostToken;
+                localStorage.setItem('host_token', hostToken);
+                updatePinDisplay(currentPin);
+                showToast(`Đã tạo phòng PIN ${currentPin} thành công!`, 'success');
+                connectHostWs();
+            } catch (err) {
+                showToast('Lỗi gọi API /api/rooms: ' + err.message, 'error');
+            }
+        }
+
+        function connectHostWs() {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            const pinVal = (document.getElementById('hostPinInput').value || currentPin || '4829').trim().toUpperCase();
+            hostToken = (document.getElementById('hostTokenInput').value || hostToken || '').trim();
+            updatePinDisplay(pinVal);
+
+            if (ws) {
+                try { ws.close(); } catch (_) {}
+            }
+
+            setHostNetStatus('connecting');
+            ws = new WebSocket(getWsUrl());
+
+            ws.onopen = () => {
+                setHostNetStatus('online');
+                sendHostMsg('room.join', {
+                    role: 'host',
+                    clientName: 'Giảng viên / Host',
+                    hostToken: hostToken || undefined
+                });
+            };
+
+            ws.onclose = () => {
+                setHostNetStatus('offline');
+                reconnectTimer = setTimeout(() => connectHostWs(), 2500);
+            };
+
+            ws.onmessage = (ev) => {
+                try {
+                    const msg = JSON.parse(ev.data);
+                    handleServerMessage(msg);
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+        }
+
+        function handleServerMessage(msg) {
+            const { type, payload } = msg;
+
+            if (type === 'room.joined') {
+                if (payload.hostToken) {
+                    hostToken = payload.hostToken;
+                    document.getElementById('hostTokenInput').value = hostToken;
+                    localStorage.setItem('host_token', hostToken);
+                }
+                if (payload.roomCode) updatePinDisplay(payload.roomCode);
+                if (payload.snapshot) applySnapshot(payload.snapshot);
+            } else if (type === 'presence.update') {
+                applyPresence(payload);
+            } else if (type === 'room.settings') {
+                applySettings(payload);
+            } else if (type === 'question.broadcast') {
+                if (!questions.some(q => q.id === payload.id)) {
+                    questions.unshift(payload);
+                }
+                renderHostQuestions();
+            } else if (
+                type === 'question.voted' ||
+                type === 'question.pin' ||
+                type === 'question.answered' ||
+                type === 'question.delete' ||
+                type === 'question.reply'
+            ) {
+                if (Array.isArray(payload.questions)) {
+                    questions = payload.questions;
+                }
+                renderHostQuestions();
+            } else if (type === 'group.updated') {
+                applyGroups(payload);
+            } else if (type === 'timer.sync') {
+                applyTimerSync(payload);
+            } else if (type === 'slide.sync') {
+                if (Array.isArray(payload.slides) && payload.slides.length > 0) {
+                    hostSlides = payload.slides;
+                    isCustomPptLoaded = true;
+                    hostDeckTitle = (payload.title || 'Slide PPT').replace(/\.pptx$/i, '');
+                }
+                console.log('[slide] nhận từ server:', payload.action, 'page=', payload.page, 'total=', payload.total, 'slides=', (payload.slides||[]).length);
+                if (typeof payload.page === 'number') {
+                    hostCurrentPage = payload.page;
+                }
+                const total = isCustomPptLoaded ? hostSlides.length : (payload.total || 5);
+                updateHostDeckUi();
+                document.getElementById('hostSlidePageBadge').textContent = `Slide ${hostCurrentPage} / ${total}`;
+            } else if (type === 'rating.summary') {
+                if (payload && typeof payload.totalVotes === 'number') {
+                    document.getElementById('ratingCount').textContent = payload.totalVotes;
+                }
+                if (payload && payload.hostAverages && typeof payload.hostAverages.overall === 'number' && payload.hostAverages.overall > 0) {
+                    document.getElementById('hostRubricAvgBadge').textContent = `TB GV: ${payload.hostAverages.overall.toFixed(2)}★`;
+                }
+            } else if (type === 'rating.success' || type === 'rating.submitted') {
+                showToast('Đã lưu phiếu chấm điểm Rubric!', 'success');
+            } else if (type === 'survey.ack') {
+                if (payload) {
+                    document.getElementById('surveySummaryText').textContent = `${payload.averageSatisfaction || 0} / 5★`;
+                    document.getElementById('surveyDetailText').textContent = `${payload.totalResponses || 0} lượt phản hồi`;
+                }
+            } else if (type === 'error') {
+                showToast(payload.message || 'Lỗi từ Server!', 'error');
+            }
+        }
+
+        function applySnapshot(snap) {
+            if (snap.presence) applyPresence(snap.presence);
+            if (snap.settings) applySettings(snap.settings);
+            if (Array.isArray(snap.questions)) {
+                questions = snap.questions;
+                renderHostQuestions();
+            }
+            if (snap.groups) applyGroups(snap.groups);
+            if (snap.timer) applyTimerSync(snap.timer);
+            if (snap.slide) {
+                if (Array.isArray(snap.slide.slides) && snap.slide.slides.length > 0) {
+                    hostSlides = snap.slide.slides;
+                    isCustomPptLoaded = true;
+                    hostDeckTitle = (snap.slide.title || 'Slide PPT').replace(/\.pptx$/i, '');
+                }
+                hostCurrentPage = snap.slide.page || 1;
+                updateHostDeckUi();
+                const total = isCustomPptLoaded ? hostSlides.length : (snap.slide.total || 5);
+                document.getElementById('hostSlidePageBadge').textContent = `Slide ${hostCurrentPage} / ${total}`;
+            }
+            if (snap.ratingSummary) {
+                document.getElementById('ratingCount').textContent = snap.ratingSummary.totalVotes || 0;
+            }
+        }
+
+        function applyPresence(p) {
+            if (!p) return;
+            document.getElementById('onlineCount').textContent = p.onlineCount ?? 0;
+            document.getElementById('peakOnlineText').textContent = p.peakConcurrent ?? 0;
+            document.getElementById('totalReactionsText').textContent = p.totalReactions ?? 0;
+            document.getElementById('activeQuestions').textContent = p.activeQuestions ?? 0;
+            document.getElementById('totalQuestionsText').textContent = p.totalQuestions ?? 0;
+            if (typeof p.totalRatings === 'number') {
+                document.getElementById('ratingCount').textContent = p.totalRatings;
+            }
+        }
+
+        function applySettings(s) {
+            if (!s) return;
+            if (typeof s.qnaOpen === 'boolean') {
+                qnaOpen = s.qnaOpen;
+                const btn = document.getElementById('qnaToggleBtn');
+                btn.textContent = qnaOpen ? 'Đang Mở' : 'Đã Khóa';
+                btn.className = qnaOpen
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition';
+            }
+            if (typeof s.ratingOpen === 'boolean') {
+                ratingOpen = s.ratingOpen;
+                const btn = document.getElementById('rubricToggleBtn');
+                btn.textContent = ratingOpen ? 'Đang Mở' : 'Đã Khóa';
+                btn.className = ratingOpen
+                    ? 'bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition'
+                    : 'bg-rose-600 hover:bg-rose-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition';
+            }
+        }
+
+        function toggleFeature(feature) {
+            if (feature === 'question') {
+                sendHostMsg('question.toggle', { open: !qnaOpen });
+            } else {
+                sendHostMsg('rating.toggle', { open: !ratingOpen });
+            }
+        }
+
+        function publishRubric() {
+            sendHostMsg('rating.publish', { published: true });
+            showToast('Đã phát biểu đồ Rubric lên màn hình Projector!', 'success');
+        }
+
+        function triggerSurvey() {
+            sendHostMsg('survey.trigger', {
+                title: 'Khảo sát mức độ hài lòng buổi thuyết trình'
+            });
+            showToast('Đã đẩy popup khảo sát CSAT xuống toàn bộ sinh viên!', 'info');
+        }
+
+        // ==================== ĐỒNG HỒ ĐẾM NGƯỢC ====================
+        function extractRemainingSec(t) {
+            if (!t || typeof t !== 'object') return timerState.remainingSec;
+
+            const rawRemaining =
+                t.remainingSec ??
+                t.remaining ??
+                t.secondsLeft ??
+                t.leftSec;
+
+            if (typeof rawRemaining === 'number' && Number.isFinite(rawRemaining)) {
+                return Math.max(0, Math.floor(rawRemaining));
+            }
+
+            const duration =
+                typeof t.durationSec === 'number' ? t.durationSec :
+                typeof t.duration === 'number' ? t.duration :
+                timerState.durationSec;
+
+            if (typeof t.elapsedSec === 'number' && Number.isFinite(t.elapsedSec)) {
+                return Math.max(0, Math.floor(duration - t.elapsedSec));
+            }
+            if (typeof t.elapsed === 'number' && Number.isFinite(t.elapsed)) {
+                return Math.max(0, Math.floor(duration - t.elapsed));
+            }
+
+            return timerState.remainingSec;
+        }
+
+        function applyTimerSync(t) {
+            if (!t) return;
+            const nextRem = extractRemainingSec(t);
+            const nextDuration =
+                typeof t.durationSec === 'number' ? t.durationSec :
+                typeof t.duration === 'number' ? t.duration :
+                timerState.durationSec;
+
+            timerState = {
+                status: t.status || timerState.status || 'stopped',
+                phase: t.phase || timerState.phase || 'presentation',
+                remainingSec: nextRem,
+                durationSec: nextDuration > 0 ? nextDuration : DEFAULT_TIMER_SEC,
+                lastSyncedAt: Date.now()
+            };
+
+            renderTimerDisplay();
+        }
+
+        function renderTimerDisplay() {
+            const rem = Math.max(0, Number(timerState.remainingSec ?? 0));
+            const mins = String(Math.floor(rem / 60)).padStart(2, '0');
+            const secs = String(rem % 60).padStart(2, '0');
+            const disp = document.getElementById('hostTimerDisplay');
+            if (disp) {
+                disp.textContent = `${mins}:${secs}`;
+                disp.className = rem === 0
+                    ? 'text-3xl font-black font-mono text-rose-500'
+                    : rem < 60
+                        ? 'text-3xl font-black font-mono text-rose-500 animate-pulse'
+                        : rem < 180
+                            ? 'text-3xl font-black font-mono text-amber-400'
+                            : 'text-3xl font-black font-mono text-emerald-400';
+            }
+
+            const phaseBadge = document.getElementById('hostTimerPhaseBadge');
+            if (phaseBadge) {
+                phaseBadge.textContent = timerState.phase === 'qna' ? 'Pha: Phản biện' : 'Pha: Trình bày';
+            }
+
+            const statusBadge = document.getElementById('hostTimerStatusBadge');
+            if (statusBadge) {
+                statusBadge.textContent = timerState.status;
+            }
+        }
+
+        function startClientTimerTicker() {
+            if (timerTickInterval) clearInterval(timerTickInterval);
+            timerTickInterval = setInterval(() => {
+                if (timerState.status === 'running' && timerState.remainingSec > 0) {
+                    timerState.remainingSec = Math.max(0, timerState.remainingSec - 1);
+                    if (timerState.remainingSec === 0) {
+                        timerState.status = 'stopped';
+                    }
+                    renderTimerDisplay();
+                }
+            }, 1000);
+        }
+
+        function controlTimer(action) {
+            if (action === 'start' || action === 'resume') {
+                if (timerState.remainingSec <= 0) {
+                    timerState.remainingSec = timerState.durationSec || DEFAULT_TIMER_SEC;
+                }
+                timerState.status = 'running';
+            } else if (action === 'pause') {
+                timerState.status = 'paused';
+            } else if (action === 'reset') {
+                timerState.status = 'stopped';
+                timerState.remainingSec = timerState.durationSec || DEFAULT_TIMER_SEC;
+            }
+            renderTimerDisplay();
+
+            const sent = sendHostMsg('timer.control', { action });
+            if (!sent) {
+                showToast('Đang cập nhật cục bộ (chưa có kết nối WS)', 'warning');
+            }
+        }
+
+        function addTimerTime(deltaSec) {
+            const delta = Number(deltaSec) || 60;
+            timerState.remainingSec = Math.max(0, (Number(timerState.remainingSec) || 0) + delta);
+            if (delta > 0 && timerState.remainingSec > timerState.durationSec) {
+                timerState.durationSec = timerState.remainingSec;
+            }
+            renderTimerDisplay();
+
+            const sent = sendHostMsg('timer.control', {
+                action: 'addTime',
+                deltaSec: delta,
+                remainingSec: timerState.remainingSec
+            });
+
+            if (sent) {
+                showToast(delta >= 0 ? `Đã cộng ${Math.round(delta / 60)} phút` : `Đã trừ ${Math.abs(Math.round(delta / 60))} phút`, 'info');
+            }
+        }
+
+        function setTimerPhase(phase) {
+            timerState.phase = phase;
+            renderTimerDisplay();
+            sendHostMsg('timer.control', { action: 'setPhase', phase });
+        }
+
+        // ==================== TẢI FILE .PPTX, GỠ PPT & ĐỒNG BỘ SLIDE ====================
+        function normalizeZipPath(baseDir, target) {
+            const cleanTarget = String(target || '').replace(/^\/+/, '');
+            const parts = cleanTarget.startsWith('ppt/')
+                ? cleanTarget.split('/')
+                : [...baseDir.split('/').filter(Boolean), ...cleanTarget.split('/')];
+            const stack = [];
+            for (const part of parts) {
+                if (!part || part === '.') continue;
+                if (part === '..') stack.pop();
+                else stack.push(part);
+            }
+            return stack.join('/');
+        }
+
+        async function resolveOrderedSlideFiles(zip, parser) {
+            const presXmlFile = zip.file('ppt/presentation.xml');
+            const presRelsFile = zip.file('ppt/_rels/presentation.xml.rels');
+
+            if (presXmlFile && presRelsFile) {
+                const presDoc = parser.parseFromString(await presXmlFile.async('string'), 'application/xml');
+                const relsDoc = parser.parseFromString(await presRelsFile.async('string'), 'application/xml');
+
+                const relMap = {};
+                Array.from(relsDoc.getElementsByTagName('*'))
+                    .filter(el => el.localName === 'Relationship')
+                    .forEach(rel => {
+                        const id = rel.getAttribute('Id');
+                        const target = rel.getAttribute('Target');
+                        if (id && target) {
+                            relMap[id] = normalizeZipPath('ppt', target);
+                        }
+                    });
+
+                const orderedPaths = Array.from(presDoc.getElementsByTagName('*'))
+                    .filter(el => el.localName === 'sldId')
+                    .map(sldIdEl => {
+                        const rId = Array.from(sldIdEl.attributes)
+                            .find(attr => attr.localName === 'id')?.value;
+                        return rId ? relMap[rId] : null;
+                    })
+                    .filter(path => path && zip.file(path));
+
+                if (orderedPaths.length > 0) {
+                    return orderedPaths;
+                }
+            }
+
+            return Object.keys(zip.files)
+                .filter(path => /^ppt\/slides\/slide\d+\.xml$/i.test(path))
+                .sort((a, b) => {
+                    const numA = parseInt(a.match(/slide(\d+)\.xml/i)[1], 10);
+                    const numB = parseInt(b.match(/slide(\d+)\.xml/i)[1], 10);
+                    return numA - numB;
+                });
+        }
+
+        async function handlePptUpload(event) {
+            const file = event.target.files && event.target.files[0];
+            if (!file) return;
+
+            if (!file.name.toLowerCase().endsWith('.pptx')) {
+                showToast('Vui lòng chọn file định dạng .pptx (nếu dùng .ppt cũ hãy lưu sang .pptx)!', 'warning');
+                event.target.value = '';
+                return;
+            }
+
+            if (typeof JSZip === 'undefined') {
+                showToast('Thiếu thư viện JSZip để đọc file .pptx!', 'error');
+                return;
+            }
+
+            const statusEl = document.getElementById('pptParseStatus');
+            statusEl.textContent = `Đang đọc ${file.name}...`;
+
+            try {
+                const arrayBuffer = await file.arrayBuffer();
+                const zip = await JSZip.loadAsync(arrayBuffer);
+                const parser = new DOMParser();
+                const slideFiles = await resolveOrderedSlideFiles(zip, parser);
+
+                if (slideFiles.length === 0) {
+                    throw new Error('Không tìm thấy trang slide nào trong file PPTX.');
+                }
+
+                const parsedSlides = [];
+
+                for (let i = 0; i < slideFiles.length; i++) {
+                    const xmlText = await zip.file(slideFiles[i]).async('string');
+                    const xmlDoc = parser.parseFromString(xmlText, 'application/xml');
+
+                    const textNodes = Array.from(xmlDoc.getElementsByTagName('*'))
+                        .filter(el => el.localName === 't')
+                        .map(el => (el.textContent || '').trim())
+                        .filter(Boolean);
+
+                    const paragraphs = Array.from(xmlDoc.getElementsByTagName('*'))
+                        .filter(el => el.localName === 'p')
+                        .map(p => {
+                            return Array.from(p.getElementsByTagName('*'))
+                                .filter(node => node.localName === 't')
+                                .map(node => node.textContent || '')
+                                .join('')
+                                .trim();
+                        })
+                        .filter(Boolean);
+
+                    const hasVisual = Array.from(xmlDoc.getElementsByTagName('*'))
+                        .some(el => el.localName === 'blip' || el.localName === 'chart' || el.localName === 'tbl');
+
+                    const title = paragraphs[0] || textNodes[0] || `Slide ${i + 1}`;
+                    const restLines = paragraphs.slice(1);
+                    const content = restLines[0] || (
+                        textNodes.length <= 1
+                            ? (hasVisual ? 'Trang slide trực quan (hình ảnh / biểu đồ / bảng).' : `Nội dung slide ${i + 1} / ${slideFiles.length}.`)
+                            : ''
+                    );
+                    const bullets = restLines.slice(1);
+
+                    parsedSlides.push({
+                        page: i + 1,
+                        title,
+                        subtitle: `${file.name} · Trang ${i + 1} / ${slideFiles.length}`,
+                        content,
+                        bullets
+                    });
+                }
+
+                hostSlides = parsedSlides;
+                hostCurrentPage = 1;
+                hostDeckTitle = file.name.replace(/\.pptx$/i, '');
+                isCustomPptLoaded = true;
+
+                updateHostDeckUi();
+                broadcastCurrentSlideState('goto');
+                showToast(`Đã tải "${file.name}" (${hostSlides.length} slide)!`, 'success');
+            } catch (err) {
+                console.error(err);
+                statusEl.textContent = 'Lỗi đọc file .pptx';
+                showToast('Không thể đọc file PPTX: ' + err.message, 'error');
+            } finally {
+                event.target.value = '';
+            }
+        }
+
+        function removeCurrentPpt() {
+            hostSlides = [];
+            hostCurrentPage = 1;
+            hostDeckTitle = 'Slide mặc định hệ thống';
+            isCustomPptLoaded = false;
+            const fileInput = document.getElementById('pptFileInput');
+            if (fileInput) fileInput.value = '';
+            updateHostDeckUi();
+
+            sendHostMsg('slide.sync', {
+                action: 'goto',
+                page: 1,
+                total: 5,
+                title: 'Bộ Slide Thuyết Trình',
+                slides: [],
+                currentSlide: null
+            });
+            showToast('Đã gỡ PPT — sẵn sàng tải file PPT của nhóm tiếp theo!', 'info');
+        }
+
+        function updateHostDeckUi() {
+            const deckLabel = document.getElementById('hostActiveDeckLabel');
+            const removeBtn = document.getElementById('removePptBtn');
+            const statusEl = document.getElementById('pptParseStatus');
+            const total = isCustomPptLoaded ? hostSlides.length : 5;
+
+            if (isCustomPptLoaded) {
+                deckLabel.textContent = `Đang chiếu PPT: ${hostDeckTitle}.pptx (${hostSlides.length} trang)`;
+                removeBtn.classList.remove('hidden');
+                statusEl.textContent = `Đã nạp ${hostSlides.length} slide — bấm "Gỡ PPT" khi đổi nhóm`;
+            } else {
+                deckLabel.textContent = 'Đang dùng: Slide mặc định hệ thống';
+                removeBtn.classList.add('hidden');
+                statusEl.textContent = 'Hỗ trợ file .pptx (tự tách từng trang slide)';
+            }
+
+            document.getElementById('hostSlidePageBadge').textContent = `Slide ${hostCurrentPage} / ${total}`;
+        }
+
+        function broadcastCurrentSlideState(action = 'goto') {
+            const total = isCustomPptLoaded ? Math.max(1, hostSlides.length) : 5;
+            hostCurrentPage = Math.max(1, Math.min(hostCurrentPage, total));
+            const currentSlide = isCustomPptLoaded ? (hostSlides[hostCurrentPage - 1] || null) : null;
+
+            document.getElementById('hostSlidePageBadge').textContent = `Slide ${hostCurrentPage} / ${total}`;
+
+            sendHostMsg('slide.sync', {
+                action,
+                page: hostCurrentPage,
+                total,
+                title: isCustomPptLoaded ? `${hostDeckTitle}.pptx` : 'Bộ Slide Thuyết Trình',
+                slides: isCustomPptLoaded ? hostSlides : [],
+                currentSlide
+            });
+        }
+
+        function syncSlide(action) {
+            const total = isCustomPptLoaded ? Math.max(1, hostSlides.length) : 5;
+            if (action === 'next') {
+                hostCurrentPage = Math.min(total, hostCurrentPage + 1);
+            } else if (action === 'prev') {
+                hostCurrentPage = Math.max(1, hostCurrentPage - 1);
+            }
+            console.log('[slide] gửi', action, '-> trang', hostCurrentPage, '/', total);
+            broadcastCurrentSlideState('goto');
+        }
+
+        function handleLaserMove(evt) {
+            const now = Date.now();
+            if (now - lastLaserSentAt < 160) return;
+            lastLaserSentAt = now;
+
+            const pad = document.getElementById('laserPad');
+            const rect = pad.getBoundingClientRect();
+            const x = Math.max(0, Math.min(1, (evt.clientX - rect.left) / rect.width));
+            const y = Math.max(0, Math.min(1, (evt.clientY - rect.top) / rect.height));
+
+            const dot = document.getElementById('laserDotPreview');
+            dot.classList.remove('hidden');
+            dot.style.left = `${x * 100}%`;
+            dot.style.top = `${y * 100}%`;
+            document.getElementById('laserCoordsLabel').textContent = `(${x.toFixed(2)}, ${y.toFixed(2)})`;
+
+            sendHostMsg('slide.laser', { active: true, x, y, color: '#ef4444' });
+        }
+
+        function toggleLaser(active) {
+            const dot = document.getElementById('laserDotPreview');
+            if (!active) {
+                dot.classList.add('hidden');
+                document.getElementById('laserCoordsLabel').textContent = 'Tắt';
+            }
+            sendHostMsg('slide.laser', { active: Boolean(active), x: 0.5, y: 0.5 });
+        }
+
+        let cameraEnabled = false;
+        function toggleStageCamera() {
+            cameraEnabled = !cameraEnabled;
+            document.getElementById('camToggleBtn').textContent = cameraEnabled ? 'Tắt Camera' : 'Bật Camera';
+            updateStageCamera();
+        }
+
+        function updateStageCamera() {
+            const position = document.getElementById('camPosSelect').value;
+            sendHostMsg('stage.camera', {
+                enabled: cameraEnabled,
+                position,
+                size: 'md',
+                mirrored: true
+            });
+        }
+
+        // ==================== ĐA NHÓM & RUBRIC HOST ====================
+        function applyGroups(gPayload) {
+            if (!gPayload) return;
+            currentGroupId = gPayload.currentGroupId || currentGroupId;
+            groupsList = Array.isArray(gPayload.groups) ? gPayload.groups : [];
+
+            if (gPayload.currentGroup) {
+                document.getElementById('currentGroupBadgeText').textContent = gPayload.currentGroup.name;
+                document.getElementById('ratingCount').textContent = gPayload.currentGroup.totalVotes ?? 0;
+            }
+
+            const sel = document.getElementById('groupSwitchSelect');
+            sel.innerHTML = groupsList.map(g =>
+                `<option value="${escapeHtml(g.id)}" ${g.id === currentGroupId ? 'selected' : ''}>${escapeHtml(g.name)} (${g.totalVotes || 0} phiếu)</option>`
+            ).join('');
+
+            const lbBox = document.getElementById('hostLeaderboardBox');
+            const lb = Array.isArray(gPayload.leaderboard) ? gPayload.leaderboard : [];
+            if (lb.length > 0) {
+                lbBox.innerHTML = lb.map(item => `
+                    <div class="flex items-center justify-between text-xs bg-white px-2.5 py-1.5 rounded-lg border border-slate-200/80">
+                        <span class="font-bold text-slate-700">#${item.rank} ${escapeHtml(item.name)} ${item.isCurrent ? '<span class="text-[10px] text-indigo-600">(Đang chấm)</span>' : ''}</span>
+                        <span class="font-mono font-bold text-emerald-600">TB: ${item.overallScore ?? 0}★ · Trọng số: ${item.weightedScore ?? 0}★</span>
+                    </div>
+                `).join('');
+            }
+        }
+
+        function addAndSwitchGroup() {
+            const name = document.getElementById('newGroupNameInput').value.trim();
+            const topic = document.getElementById('newGroupTopicInput').value.trim();
+            if (!name) {
+                showToast('Vui lòng nhập tên nhóm mới!', 'warning');
+                return;
+            }
+            const autoClear = document.getElementById('autoClearPptOnSwitch')?.checked;
+            if (autoClear && isCustomPptLoaded) {
+                removeCurrentPpt();
+            }
+            sendHostMsg('group.add', { name, topic, switchImmediately: true });
+            document.getElementById('newGroupNameInput').value = '';
+            document.getElementById('newGroupTopicInput').value = '';
+        }
+
+        function switchSelectedGroup() {
+            const groupId = document.getElementById('groupSwitchSelect').value;
+            if (!groupId) return;
+            const autoClear = document.getElementById('autoClearPptOnSwitch')?.checked;
+            if (autoClear && isCustomPptLoaded) {
+                removeCurrentPpt();
+            }
+            sendHostMsg('group.switch', { groupId });
+        }
+
+        function submitHostRubric() {
+            const scores = {
+                content: Number(document.getElementById('hostScoreContent').value),
+                presentation: Number(document.getElementById('hostScorePresentation').value),
+                demo: Number(document.getElementById('hostScoreDemo').value),
+                qa: Number(document.getElementById('hostScoreQa').value)
+            };
+            const comment = document.getElementById('hostRubricComment').value.trim();
+            sendHostMsg('rating.submit', {
+                scores,
+                comment,
+                role: 'host',
+                authorName: 'Giảng viên (Host)'
+            });
+        }
+
+        // ==================== ĐIỀU PHỐI CÂU HỎI Q&A ====================
+        function renderHostQuestions() {
+            const container = document.getElementById('hostQuestionList');
+            if (!Array.isArray(questions) || questions.length === 0) {
+                container.innerHTML = '<p class="text-xs text-slate-400 italic py-4 text-center">Chưa có câu hỏi nào trong phòng.</p>';
+                return;
+            }
+
+            container.innerHTML = questions.map(q => {
+                const text = q.content || q.text || '';
+                const author = q.authorName || q.author || 'Ẩn danh';
+                const tag = TAG_LABELS[q.category] || '❓ Chất vấn';
+                return `
+                    <div class="p-3 rounded-xl border ${q.pinned ? 'border-amber-400 bg-amber-50/40' : 'border-slate-200 bg-slate-50/60'} space-y-2">
+                        <div class="flex flex-wrap items-center justify-between gap-2">
+                            <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-100 text-indigo-700">${tag}</span>
+                                <span class="text-xs font-bold text-slate-800">${escapeHtml(author)}</span>
+                                <span class="text-xs font-extrabold text-indigo-600">▲ ${q.votes || 0} vote</span>
+                                ${q.pinned ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-200 text-amber-900">📌 Đang ghim</span>' : ''}
+                                ${q.answered ? '<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700">✅ Đã trả lời</span>' : ''}
+                            </div>
+                            <div class="flex flex-wrap gap-1.5">
+                                <button type="button" onclick="moderateQ('${q.id}', 'pin')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-amber-100 hover:bg-amber-200 text-amber-900">${q.pinned ? 'Bỏ ghim' : '📌 Ghim'}</button>
+                                <button type="button" onclick="moderateQ('${q.id}', 'answered')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-100 hover:bg-emerald-200 text-emerald-800">✅ Đã trả lời</button>
+                                <button type="button" onclick="moderateQ('${q.id}', 'delete')" class="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-rose-100 hover:bg-rose-200 text-rose-700">🗑 Xóa</button>
+                            </div>
+                        </div>
+                        <p class="text-xs text-slate-800 font-medium">${escapeHtml(text)}</p>
+                        ${q.reply ? `<p class="text-[11px] text-emerald-800 bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">💡 <strong>Phản hồi:</strong> ${escapeHtml(q.reply)}</p>` : ''}
+                        <div class="flex gap-2">
+                            <input type="text" id="replyInput_${q.id}" value="${escapeHtml(q.reply || '')}" placeholder="Ghi chú câu trả lời phản biện của nhóm..." class="flex-1 px-2.5 py-1 text-xs bg-white border border-slate-200 rounded-lg focus:outline-none focus:border-indigo-500">
+                            <button type="button" onclick="sendReply('${q.id}')" class="px-3 py-1 rounded-lg text-xs font-bold bg-indigo-600 hover:bg-indigo-700 text-white">Gửi trả lời</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function moderateQ(questionId, action) {
+            const map = {
+                pin: 'question.pin',
+                answered: 'question.answered',
+                delete: 'question.delete'
+            };
+            if (map[action]) {
+                sendHostMsg(map[action], { questionId });
+            }
+        }
+
+        function sendReply(questionId) {
+            const input = document.getElementById(`replyInput_${questionId}`);
+            if (!input) return;
+            const reply = input.value.trim();
+            if (!reply) {
+                showToast('Vui lòng nhập nội dung trả lời trước khi gửi!', 'warning');
+                return;
+            }
+            sendHostMsg('question.reply', {
+                questionId,
+                reply,
+                repliedBy: 'Nhóm thuyết trình'
+            });
+            showToast('Đã cập nhật câu trả lời cho câu hỏi!', 'success');
+        }
+
+        function escapeHtml(text) {
+            return text
+                ? String(text)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                : '';
+        }
+    </script>
+</body>
+</html>
