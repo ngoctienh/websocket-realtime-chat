@@ -1,0 +1,836 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ClassLive Pro - Projector View</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        @keyframes floatUpReaction {
+            0% { opacity: 0; transform: translateY(16px) scale(0.75); }
+            18% { opacity: 1; transform: translateY(-10px) scale(1.15); }
+            80% { opacity: 0.95; transform: translateY(-120px) scale(1); }
+            100% { opacity: 0; transform: translateY(-170px) scale(0.9); }
+        }
+        .projector-reaction-item {
+            position: absolute;
+            bottom: 12px;
+            animation: floatUpReaction 2.2s ease-out forwards;
+            pointer-events: none;
+            user-select: none;
+        }
+    </style>
+</head>
+<body class="bg-slate-950 text-slate-100 min-h-screen p-4 md:p-6 flex flex-col justify-between font-sans relative overflow-x-hidden">
+
+    <!-- Lớp hiệu ứng Emoji bay lên màn hình chiếu (reaction.broadcast) -->
+    <div id="reactionOverlay" class="fixed inset-x-0 bottom-4 h-56 pointer-events-none z-40 overflow-hidden"></div>
+
+    <!-- Nút bật/tắt Webcam trực tiếp trên màn hình Projector -->
+    <button type="button" id="projectorCamToggleBtn" onclick="toggleProjectorWebcam()"
+            class="fixed bottom-4 left-4 z-40 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold shadow-lg border border-indigo-400/50 transition flex items-center gap-1.5">
+        <span>📷</span> <span id="projectorCamBtnLabel">Bật Webcam</span>
+    </button>
+
+    <!-- Khung Camera Diễn giả PiP hiển thị hình ảnh webcam trực tiếp (stage.camera) -->
+    <div id="stageCameraPip" class="hidden fixed bottom-5 right-5 z-40 w-64 h-44 rounded-2xl bg-slate-900/95 border-2 border-indigo-400/80 shadow-2xl overflow-hidden flex flex-col">
+        <div class="relative flex-1 bg-black overflow-hidden">
+            <video id="projectorCamVideo" autoplay playsinline muted class="w-full h-full object-cover -scale-x-100 hidden"></video>
+            <div id="projectorCamPlaceholder" class="w-full h-full flex flex-col items-center justify-center text-center p-3">
+                <div class="w-9 h-9 rounded-full bg-indigo-500/20 text-indigo-300 flex items-center justify-center text-base mb-1">🎥</div>
+                <span id="projectorCamStatusText" class="text-[11px] font-semibold text-slate-300">Đang khởi động camera...</span>
+            </div>
+        </div>
+        <div class="px-2.5 py-1 bg-slate-950/90 border-t border-slate-800 flex items-center justify-between text-[10px] font-mono text-indigo-300">
+            <span>● CAM</span>
+            <span id="camMetaLabel">bottom-right · md</span>
+        </div>
+    </div>
+
+    <!-- Header: QR Code, Mã PIN, Nhóm đang thuyết trình & Đồng hồ đếm ngược -->
+    <header class="bg-slate-900/85 border border-slate-800 rounded-2xl p-5 shadow-xl flex flex-wrap items-center justify-between gap-4 backdrop-blur-md">
+        <div class="flex items-center space-x-5">
+            <div class="bg-white p-2.5 rounded-xl shadow-inner flex items-center justify-center shrink-0">
+                <div id="qrcode" class="w-28 h-28 flex items-center justify-center"></div>
+            </div>
+            <div>
+                <p class="text-[11px] uppercase tracking-wider text-slate-400 font-semibold mb-1">Quét mã QR để vào phòng tương tác</p>
+                <h1 class="text-3xl md:text-4xl font-black text-indigo-400 tracking-wide font-mono">
+                    PIN: <span id="roomPinDisplay" class="text-white">4829</span>
+                </h1>
+                <p id="projectorGroupTitle" class="text-sm font-bold text-amber-300 mt-1">Nhóm 1 (Đang thuyết trình)</p>
+                <div class="flex flex-wrap items-center gap-3 text-xs text-slate-400 mt-1">
+                    <span id="roomStatusText" class="text-emerald-400 font-medium">● Đang chờ kết nối...</span>
+                    <span>👥 Online: <strong id="projectorOnlineCount" class="text-indigo-300">0</strong></span>
+                    <span>👏 Cảm xúc: <strong id="projectorReactionTotal" class="text-amber-300">0</strong></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Đồng hồ đếm ngược & Pha trình bày -->
+        <div class="text-right bg-slate-950/70 px-6 py-4 rounded-xl border border-slate-800 shrink-0">
+            <div class="flex items-center justify-end gap-2 mb-1">
+                <span id="projectorPhaseBadge" class="text-[10px] font-bold uppercase px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">Pha: Trình bày</span>
+                <span class="text-xs uppercase tracking-wider text-slate-400 font-semibold">Thời gian còn lại</span>
+            </div>
+            <div id="timerDisplay" class="text-5xl md:text-6xl font-black text-emerald-400 font-mono tracking-tight">15:00</div>
+            <span id="timerWarningBadge" class="text-[11px] text-slate-400 font-medium block mt-1">Chuẩn bị bắt đầu</span>
+        </div>
+    </header>
+
+    <!-- Main Content: Slide & Con trỏ Laser + Spotlight & Top Câu hỏi + Biểu đồ Rubric & Leaderboard -->
+    <main class="flex-1 my-5 grid grid-cols-1 lg:grid-cols-12 gap-5">
+
+        <!-- Cột trái (7/12): Sân khấu Slide đồng bộ + Con trỏ Laser đỏ -->
+        <section class="lg:col-span-7 bg-slate-900/75 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col justify-between">
+            <div class="flex items-center justify-between gap-2 mb-3">
+                <h2 class="text-base font-bold text-slate-200 flex items-center gap-2 min-w-0">
+                    <span>🖥️</span> <span id="slideDeckTitle" class="truncate">Bộ Slide Thuyết Trình</span>
+                </h2>
+                <span id="slidePageIndicator" class="text-xs font-mono font-bold px-3 py-1 rounded-lg bg-indigo-500/20 text-indigo-300 border border-indigo-400/30 shrink-0">
+                    Trang 1 / 5
+                </span>
+            </div>
+
+            <!-- Khung trình chiếu Slide + Laser Pointer Overlay -->
+            <div id="slideStageCanvas" class="relative flex-1 min-h-[260px] rounded-xl bg-slate-950 border border-slate-800 p-6 flex flex-col justify-center overflow-hidden">
+                <span id="slideSubLabel" class="text-xs font-semibold text-indigo-400 uppercase tracking-wider mb-1">ClassLive Pro</span>
+                <h3 id="slideMainHeading" class="text-xl md:text-2xl font-extrabold text-white leading-snug mb-2">ClassLive Pro — Kiến trúc Giao thức WebSocket (RFC 6455)</h3>
+                <p id="slideBodyText" class="text-sm text-slate-300 leading-relaxed mb-3">Hệ thống Hỏi đáp Realtime, Chấm điểm Rubric Đa Nhóm, Đồng bộ Slide & Con trỏ Laser thời gian thực.</p>
+                <ul id="slideBulletsList" class="space-y-1.5 text-xs md:text-sm text-slate-300 list-disc pl-5">
+                    <li>Kết nối song công toàn phần (Full-Duplex) trên một kết nối TCP duy nhất (HTTP 101 Upgrade)</li>
+                    <li>Độ trễ P95 &lt; 30ms cho 100 kết nối đồng thời (100 CCU)</li>
+                    <li>Tự động khôi phục gói tin bị lỡ qua Sequence ID (sync.resume)</li>
+                </ul>
+
+                <!-- Con trỏ Laser đỏ thời gian thực -->
+                <div id="projectorLaserPointer" class="hidden absolute w-5 h-5 rounded-full bg-rose-500 shadow-[0_0_16px_6px_rgba(244,63,94,0.75)] border-2 border-white -translate-x-1/2 -translate-y-1/2 pointer-events-none transition-all duration-75 z-20"></div>
+            </div>
+        </section>
+
+        <!-- Cột phải (5/12): Câu hỏi đang ghim (Spotlight) & Top câu hỏi nhiều vote -->
+        <section class="lg:col-span-5 bg-slate-900/75 border border-slate-800 rounded-2xl p-5 shadow-lg flex flex-col gap-4">
+            <!-- Spotlight câu hỏi đang được ghim -->
+            <div id="projectorSpotlightCard" class="hidden p-3.5 rounded-xl bg-amber-500/10 border border-amber-400/50">
+                <div class="flex items-center justify-between text-[11px] font-bold text-amber-300 mb-1">
+                    <span>📌 CÂU HỎI ĐANG GHIM PHẢN BIỆN</span>
+                    <span id="spotlightAuthorLabel"></span>
+                </div>
+                <p id="spotlightQuestionBody" class="text-sm font-bold text-white leading-snug"></p>
+                <p id="spotlightReplyBody" class="hidden mt-2 text-xs text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 rounded-lg px-2.5 py-1.5"></p>
+            </div>
+
+            <div class="flex-1 flex flex-col min-h-0">
+                <h2 class="text-base font-bold text-slate-200 mb-3 flex items-center gap-2">
+                    <span>🔥</span> Top Câu Hỏi Chất Vấn Nổi Bật
+                </h2>
+                <div id="topQuestionsList" class="space-y-2.5 overflow-y-auto max-h-72 pr-1 flex-1">
+                    <p class="text-slate-500 text-sm italic">Chưa có câu hỏi nào...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <!-- Khu vực dưới: Biểu đồ Rubric & Bảng xếp hạng các nhóm khi Host công bố -->
+    <section id="rubricLockedBanner" class="bg-slate-900/40 border border-dashed border-slate-800 rounded-2xl p-4 text-center">
+        <p class="text-xs text-slate-400 font-medium">
+            🔒 Điểm chấm Rubric 4 tiêu chí đang được thu thập ẩn danh — Biểu đồ & Bảng xếp hạng sẽ hiển thị khi Host bấm <span class="text-indigo-400 font-bold">"🚀 Công Bố"</span>.
+        </p>
+    </section>
+
+    <section id="rubricChartSection" class="hidden bg-slate-900/85 border border-slate-800 rounded-2xl p-5 shadow-xl grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+        <div class="lg:col-span-7">
+            <div class="flex items-center justify-between mb-2">
+                <h3 class="text-base font-bold text-slate-200">📊 Biểu Đồ Tổng Hợp Điểm Rubric (Thang 5 Sao)</h3>
+                <span id="rubricVotesBadge" class="text-xs text-emerald-400 font-mono font-bold">0 phiếu</span>
+            </div>
+            <div class="h-56">
+                <canvas id="rubricBarChart"></canvas>
+            </div>
+        </div>
+        <div class="lg:col-span-5 space-y-2">
+            <h3 class="text-sm font-bold text-amber-300">🏆 Bảng Xếp Hạng Các Nhóm Thuyết Trình</h3>
+            <div id="projectorLeaderboardList" class="space-y-2 max-h-56 overflow-y-auto pr-1"></div>
+        </div>
+    </section>
+
+    <script>
+        const DEFAULT_TIMER_SEC = 900;
+
+        let ws = null;
+        let currentPin = '4829';
+        let rubricChart = null;
+        let reconnectTimer = null;
+        let projectorTicker = null;
+        let webcamStream = null;
+        let webcamActive = false;
+        let currentCamConfig = { enabled: false, position: 'bottom-right', size: 'md', mirrored: true };
+        let cachedCustomSlides = [];
+        let cachedDeckTitle = 'Bộ Slide Thuyết Trình';
+
+        let projectorTimer = {
+            remainingSec: DEFAULT_TIMER_SEC,
+            durationSec: DEFAULT_TIMER_SEC,
+            phase: 'presentation',
+            status: 'stopped',
+            running: false
+        };
+
+        const FALLBACK_SLIDES = [
+            {
+                page: 1,
+                title: 'ClassLive Pro — Kiến trúc Giao thức WebSocket (RFC 6455)',
+                subtitle: 'Bài tập nhóm số 3 • Môn Lập trình Mạng',
+                content: 'Hệ thống Hỏi đáp Realtime, Chấm điểm Rubric Đa Nhóm, Đồng bộ Slide & Con trỏ Laser thời gian thực.',
+                bullets: [
+                    'Kết nối song công toàn phần (Full-Duplex) trên một kết nối TCP duy nhất (HTTP 101 Upgrade)',
+                    'Độ trễ P95 < 30ms cho 100 kết nối đồng thời (100 CCU)',
+                    'Tự động khôi phục gói tin bị lỡ qua Sequence ID (sync.resume)'
+                ]
+            },
+            {
+                page: 2,
+                title: 'Cơ chế Đồng bộ Thời gian & Chống Trôi Giờ (Clock Drift)',
+                subtitle: 'Server-Authoritative Synced Timer & Phase Control',
+                content: 'Đồng hồ đếm ngược được tính toán từ mốc Date.now() của Server, chia 2 pha: Trình bày & Phản biện.',
+                bullets: [
+                    'Cảnh báo tự động đổi màu: Xanh (> 3p) → Vàng (< 3p) → Đỏ nhấp nháy (< 1p)',
+                    'Hỗ trợ cộng/trừ thời gian trực tiếp (+1 phút / -1 phút) ngay khi đang chạy',
+                    'Đồng bộ tức thời tới Projector, Host và thiết bị Sinh viên'
+                ]
+            },
+            {
+                page: 3,
+                title: 'Đồng bộ Slide & Con trỏ Laser Thời Gian Thực',
+                subtitle: 'Live Slide Sync & High-Frequency Laser Pointer',
+                content: 'Giúp người xem theo dõi trực tiếp từng trang Slide và điểm chỉ Laser trên sân khấu.',
+                bullets: [
+                    'Tách biệt Control Plane (lật trang) và Ephemeral Stream (tọa độ Laser tần suất cao)',
+                    'Tọa độ Laser chuẩn hóa (x, y ∈ [0..1]) tương thích mọi kích thước màn hình',
+                    'Điều khiển từ xa khung Camera Diễn giả (PiP) trên màn chiếu Projector'
+                ]
+            },
+            {
+                page: 4,
+                title: 'Chấm điểm Rubric Đa Nhóm & Trọng số Giảng viên / Sinh viên',
+                subtitle: 'Weighted Peer-Review & Live Leaderboard',
+                content: 'Đánh giá khách quan theo 4 tiêu chí kèm nhận xét phản biện và bảng xếp hạng các nhóm.',
+                bullets: [
+                    '4 tiêu chí: Nội dung, Trình bày, Sản phẩm/Demo, Trả lời phản biện',
+                    'Tính điểm trọng số: Điểm Giảng viên (Host) + Điểm Hội đồng Sinh viên',
+                    'Chống vote lặp ẩn danh bằng mã băm Salted SHA-256 theo từng phòng'
+                ]
+            },
+            {
+                page: 5,
+                title: 'Bảo mật, Chống Spam & Kiểm thử Tải 100 CCU',
+                subtitle: 'Sliding-Window Rate Limiting & Xuất Báo Cáo CSV',
+                content: 'Đảm bảo ổn định trên mạng WiFi / 4G giảng đường và xuất báo cáo chuẩn UTF-8 BOM.',
+                bullets: [
+                    'Sliding-Window Rate Limiter: tối đa 3 câu hỏi/phút, chống flood frame',
+                    'Lọc từ ngữ không phù hợp & xác thực quyền Host bằng hostToken',
+                    'Xuất báo cáo tổng hợp ra file CSV/Excel không lỗi font tiếng Việt'
+                ]
+            }
+        ];
+
+        window.onload = () => {
+            const urlPin = new URLSearchParams(window.location.search).get('pin');
+            if (urlPin) currentPin = urlPin.trim().toUpperCase();
+            document.getElementById('roomPinDisplay').textContent = currentPin;
+
+            renderQrCode(currentPin);
+            renderSlideView({ page: 1, total: FALLBACK_SLIDES.length, currentSlide: FALLBACK_SLIDES[0] });
+            renderProjectorTimer();
+            startProjectorTicker();
+            initProjectorWs(currentPin);
+        };
+
+        function normalizeDeckTitle(rawTitle) {
+            const cleaned = String(rawTitle || '')
+                .replace(/\s*[-–—|]?\s*nhóm\s*\d+.*$/i, '')
+                .trim();
+            if (!cleaned || /^slide thuyết trình trực tiếp$/i.test(cleaned)) {
+                return 'Bộ Slide Thuyết Trình';
+            }
+            return cleaned;
+        }
+
+        function renderQrCode(pin) {
+            const qrContainer = document.getElementById('qrcode');
+            qrContainer.innerHTML = '';
+            const joinUrl = `${window.location.origin}/student?pin=${encodeURIComponent(pin)}`;
+            if (typeof QRCode !== 'undefined') {
+                new QRCode(qrContainer, {
+                    text: joinUrl,
+                    width: 112,
+                    height: 112,
+                    colorDark: '#0f172a',
+                    colorLight: '#ffffff',
+                    correctLevel: QRCode.CorrectLevel.M
+                });
+            }
+        }
+
+        function getWsUrl() {
+            const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+            if (!location.host || location.port === '5500' || location.port === '5173') {
+                return `${wsProto}//${location.hostname || 'localhost'}:8080/ws`;
+            }
+            return `${wsProto}//${location.host}/ws`;
+        }
+
+        function initProjectorWs(pin) {
+            if (reconnectTimer) {
+                clearTimeout(reconnectTimer);
+                reconnectTimer = null;
+            }
+            const statusEl = document.getElementById('roomStatusText');
+            statusEl.textContent = '● Đang kết nối máy chủ...';
+            statusEl.className = 'text-amber-400 font-medium';
+
+            ws = new WebSocket(getWsUrl());
+
+            ws.onopen = () => {
+                statusEl.textContent = '● Đã kết nối trực tiếp (Realtime)';
+                statusEl.className = 'text-emerald-400 font-medium';
+                ws.send(JSON.stringify({
+                    type: 'room.join',
+                    roomCode: pin,
+                    seq: 1,
+                    timestamp: Date.now(),
+                    payload: {
+                        role: 'projector',
+                        clientName: 'Màn chiếu Projector'
+                    }
+                }));
+            };
+
+            ws.onclose = () => {
+                statusEl.textContent = '● Mất kết nối — Đang thử lại...';
+                statusEl.className = 'text-rose-400 font-medium';
+                reconnectTimer = setTimeout(() => initProjectorWs(pin), 2500);
+            };
+
+            ws.onmessage = (event) => {
+                try {
+                    const msg = JSON.parse(event.data);
+                    handleServerMessage(msg);
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+        }
+
+        function handleServerMessage(msg) {
+            const { type, payload } = msg;
+            if (type === 'room.joined') {
+                if (payload.roomCode && payload.roomCode !== currentPin) {
+                    currentPin = payload.roomCode;
+                    document.getElementById('roomPinDisplay').textContent = currentPin;
+                    renderQrCode(currentPin);
+                }
+                if (payload.snapshot) {
+                    applySnapshot(payload.snapshot);
+                }
+            } else if (type === 'presence.update') {
+                if (typeof payload.onlineCount === 'number') {
+                    document.getElementById('projectorOnlineCount').textContent = payload.onlineCount;
+                }
+                if (typeof payload.totalReactions === 'number') {
+                    document.getElementById('projectorReactionTotal').textContent = payload.totalReactions;
+                }
+                if (payload.currentGroupName) {
+                    document.getElementById('projectorGroupTitle').textContent = payload.currentGroupName;
+                }
+            } else if (type === 'timer.sync') {
+                updateTimerDisplay(payload);
+            } else if (type === 'timer.control' && payload) {
+                applyTimerControlPayload(payload);
+            } else if (
+                type === 'question.broadcast' ||
+                type === 'question.voted' ||
+                type === 'question.pin' ||
+                type === 'question.answered' ||
+                type === 'question.delete' ||
+                type === 'question.reply'
+            ) {
+                if (Array.isArray(payload.questions)) {
+                    renderTopQuestions(payload.questions);
+                }
+            } else if (type === 'slide.sync') {
+                renderSlideView(payload);
+            } else if (type === 'slide.laser') {
+                renderLaserPointer(payload);
+            } else if (type === 'stage.camera') {
+                renderCameraPip(payload);
+            } else if (type === 'reaction.broadcast') {
+                spawnFloatingReaction(payload);
+            } else if (type === 'group.updated') {
+                if (payload.currentGroup) {
+                    document.getElementById('projectorGroupTitle').textContent = payload.currentGroup.name;
+                }
+                if (Array.isArray(payload.leaderboard)) {
+                    renderProjectorLeaderboard(payload.leaderboard);
+                }
+            } else if (type === 'rating.summary') {
+                renderRubricChart(payload);
+                if (Array.isArray(payload.leaderboard)) {
+                    renderProjectorLeaderboard(payload.leaderboard);
+                }
+            } else if (type === 'room.settings' && payload.resultPublished === false) {
+                document.getElementById('rubricChartSection').classList.add('hidden');
+                document.getElementById('rubricLockedBanner').classList.remove('hidden');
+            }
+        }
+
+        function applySnapshot(snap) {
+            if (snap.presence) {
+                document.getElementById('projectorOnlineCount').textContent = snap.presence.onlineCount ?? 0;
+                document.getElementById('projectorReactionTotal').textContent = snap.presence.totalReactions ?? 0;
+            }
+            if (snap.groups && snap.groups.currentGroup) {
+                document.getElementById('projectorGroupTitle').textContent = snap.groups.currentGroup.name;
+                if (Array.isArray(snap.groups.leaderboard)) {
+                    renderProjectorLeaderboard(snap.groups.leaderboard);
+                }
+            }
+            if (snap.timer) updateTimerDisplay(snap.timer);
+            if (Array.isArray(snap.questions)) renderTopQuestions(snap.questions);
+            if (snap.slide) {
+                renderSlideView(snap.slide);
+                if (snap.slide.laser) renderLaserPointer(snap.slide.laser);
+            }
+            if (snap.camera) renderCameraPip(snap.camera);
+            if (snap.settings && snap.settings.resultPublished && snap.ratingSummary) {
+                renderRubricChart(snap.ratingSummary);
+            }
+        }
+
+        function extractRemainingSec(timer) {
+            if (!timer || typeof timer !== 'object') return projectorTimer.remainingSec;
+
+            const rawRemaining =
+                timer.remainingSec ??
+                timer.remaining ??
+                timer.secondsLeft ??
+                timer.leftSec;
+
+            if (typeof rawRemaining === 'number' && Number.isFinite(rawRemaining)) {
+                return Math.max(0, Math.floor(rawRemaining));
+            }
+
+            const duration =
+                typeof timer.durationSec === 'number' ? timer.durationSec :
+                typeof timer.duration === 'number' ? timer.duration :
+                projectorTimer.durationSec;
+
+            if (typeof timer.elapsedSec === 'number' && Number.isFinite(timer.elapsedSec)) {
+                return Math.max(0, Math.floor(duration - timer.elapsedSec));
+            }
+            if (typeof timer.elapsed === 'number' && Number.isFinite(timer.elapsed)) {
+                return Math.max(0, Math.floor(duration - timer.elapsed));
+            }
+
+            return projectorTimer.remainingSec;
+        }
+
+        function applyTimerControlPayload(p) {
+            if (p.action === 'addTime') {
+                const delta = Number(p.deltaSec) || 60;
+                if (typeof p.remainingSec === 'number') {
+                    projectorTimer.remainingSec = Math.max(0, Math.floor(p.remainingSec));
+                } else {
+                    projectorTimer.remainingSec = Math.max(0, projectorTimer.remainingSec + delta);
+                }
+            } else if (p.action === 'start' || p.action === 'resume') {
+                projectorTimer.status = 'running';
+                projectorTimer.running = true;
+            } else if (p.action === 'pause') {
+                projectorTimer.status = 'paused';
+                projectorTimer.running = false;
+            } else if (p.action === 'reset') {
+                projectorTimer.status = 'stopped';
+                projectorTimer.running = false;
+                projectorTimer.remainingSec = projectorTimer.durationSec || DEFAULT_TIMER_SEC;
+            } else if (p.action === 'setPhase' && p.phase) {
+                projectorTimer.phase = p.phase;
+            }
+            renderProjectorTimer();
+        }
+
+        function updateTimerDisplay(timer) {
+            if (!timer) return;
+            projectorTimer.remainingSec = extractRemainingSec(timer);
+            if (typeof timer.durationSec === 'number' && timer.durationSec > 0) {
+                projectorTimer.durationSec = timer.durationSec;
+            }
+            if (timer.phase) {
+                projectorTimer.phase = timer.phase;
+            }
+            if (timer.status) {
+                projectorTimer.status = timer.status;
+                projectorTimer.running = timer.status === 'running';
+            } else if (typeof timer.running === 'boolean') {
+                projectorTimer.running = timer.running;
+                projectorTimer.status = timer.running ? 'running' : 'paused';
+            }
+            renderProjectorTimer();
+        }
+
+        function renderProjectorTimer() {
+            const rem = Math.max(0, Number(projectorTimer.remainingSec ?? 0));
+            const mins = String(Math.floor(rem / 60)).padStart(2, '0');
+            const secs = String(rem % 60).padStart(2, '0');
+            const displayEl = document.getElementById('timerDisplay');
+            const badgeEl = document.getElementById('timerWarningBadge');
+            const phaseEl = document.getElementById('projectorPhaseBadge');
+
+            displayEl.textContent = `${mins}:${secs}`;
+            phaseEl.textContent = projectorTimer.phase === 'qna' ? 'Pha: Phản biện' : 'Pha: Trình bày';
+
+            if (rem < 60) {
+                displayEl.className = 'text-5xl md:text-6xl font-black text-rose-500 font-mono tracking-tight animate-pulse';
+                badgeEl.textContent = '⚠️ Dưới 1 phút — Sắp hết giờ!';
+                badgeEl.className = 'text-[11px] text-rose-400 font-bold block mt-1';
+            } else if (rem < 180) {
+                displayEl.className = 'text-5xl md:text-6xl font-black text-amber-400 font-mono tracking-tight';
+                badgeEl.textContent = '⏳ Còn dưới 3 phút';
+                badgeEl.className = 'text-[11px] text-amber-300 font-semibold block mt-1';
+            } else {
+                displayEl.className = 'text-5xl md:text-6xl font-black text-emerald-400 font-mono tracking-tight';
+                badgeEl.textContent = projectorTimer.running ? '● Đang đếm ngược' : 'Đã tạm dừng / Sẵn sàng';
+                badgeEl.className = 'text-[11px] text-emerald-400 font-medium block mt-1';
+            }
+        }
+
+        function startProjectorTicker() {
+            if (projectorTicker) clearInterval(projectorTicker);
+            projectorTicker = setInterval(() => {
+                if (projectorTimer.running && projectorTimer.remainingSec > 0) {
+                    projectorTimer.remainingSec = Math.max(0, projectorTimer.remainingSec - 1);
+                    if (projectorTimer.remainingSec === 0) {
+                        projectorTimer.running = false;
+                        projectorTimer.status = 'stopped';
+                    }
+                    renderProjectorTimer();
+                }
+            }, 1000);
+        }
+
+        function renderSlideView(slidePayload) {
+            if (!slidePayload) return;
+
+            if (Array.isArray(slidePayload.slides)) {
+                cachedCustomSlides = slidePayload.slides;
+            }
+            if (typeof slidePayload.title === 'string' && slidePayload.title.trim()) {
+                cachedDeckTitle = normalizeDeckTitle(slidePayload.title);
+            }
+
+            const activeDeck = cachedCustomSlides.length > 0 ? cachedCustomSlides : FALLBACK_SLIDES;
+            const page = Number(slidePayload.page || 1);
+            const total = Number(slidePayload.total || activeDeck.length);
+
+            document.getElementById('slidePageIndicator').textContent = `Trang ${page} / ${total}`;
+            document.getElementById('slideDeckTitle').textContent = cachedDeckTitle;
+
+            const slideObj = slidePayload.currentSlide || activeDeck[(page - 1) % activeDeck.length] || {};
+            document.getElementById('slideSubLabel').textContent = slideObj.subtitle || `Slide ${page}`;
+            document.getElementById('slideMainHeading').textContent = slideObj.title || `Trang thuyết trình #${page}`;
+            document.getElementById('slideBodyText').textContent = slideObj.content || '';
+
+            const bulletsEl = document.getElementById('slideBulletsList');
+            if (Array.isArray(slideObj.bullets) && slideObj.bullets.length > 0) {
+                bulletsEl.classList.remove('hidden');
+                bulletsEl.innerHTML = slideObj.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('');
+            } else {
+                bulletsEl.classList.add('hidden');
+            }
+        }
+
+        function renderLaserPointer(laser) {
+            const dot = document.getElementById('projectorLaserPointer');
+            if (!laser || !laser.active) {
+                dot.classList.add('hidden');
+                return;
+            }
+            const x = Math.max(0, Math.min(1, Number(laser.x) || 0.5));
+            const y = Math.max(0, Math.min(1, Number(laser.y) || 0.5));
+            dot.classList.remove('hidden');
+            dot.style.left = `${x * 100}%`;
+            dot.style.top = `${y * 100}%`;
+        }
+
+        async function startProjectorWebcam() {
+            const videoEl = document.getElementById('projectorCamVideo');
+            const placeholderEl = document.getElementById('projectorCamPlaceholder');
+            const statusEl = document.getElementById('projectorCamStatusText');
+            const btnLabel = document.getElementById('projectorCamBtnLabel');
+
+            if (!videoEl || !placeholderEl || !statusEl) return;
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                videoEl.classList.add('hidden');
+                placeholderEl.classList.remove('hidden');
+                statusEl.textContent = 'Trình duyệt không hỗ trợ camera (cần HTTPS hoặc localhost)';
+                return;
+            }
+
+            if (webcamStream) {
+                videoEl.srcObject = webcamStream;
+                videoEl.classList.remove('hidden');
+                placeholderEl.classList.add('hidden');
+                webcamActive = true;
+                if (btnLabel) btnLabel.textContent = 'Tắt Webcam';
+                return;
+            }
+
+            try {
+                placeholderEl.classList.remove('hidden');
+                statusEl.textContent = 'Đang xin quyền truy cập camera...';
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        width: { ideal: 640 },
+                        height: { ideal: 480 },
+                        facingMode: 'user'
+                    },
+                    audio: false
+                });
+                webcamStream = stream;
+                webcamActive = true;
+                videoEl.srcObject = stream;
+                videoEl.classList.remove('hidden');
+                placeholderEl.classList.add('hidden');
+                if (btnLabel) btnLabel.textContent = 'Tắt Webcam';
+            } catch (err) {
+                webcamActive = false;
+                videoEl.classList.add('hidden');
+                placeholderEl.classList.remove('hidden');
+                if (btnLabel) btnLabel.textContent = 'Bật Webcam';
+                statusEl.textContent = 'Lỗi mở camera: ' + (err && err.message ? err.message : 'Kiểm tra quyền thiết bị');
+            }
+        }
+
+        function stopProjectorWebcam() {
+            if (webcamStream) {
+                webcamStream.getTracks().forEach(track => track.stop());
+                webcamStream = null;
+            }
+            webcamActive = false;
+            const videoEl = document.getElementById('projectorCamVideo');
+            const btnLabel = document.getElementById('projectorCamBtnLabel');
+            if (videoEl) {
+                videoEl.srcObject = null;
+                videoEl.classList.add('hidden');
+            }
+            if (btnLabel) btnLabel.textContent = 'Bật Webcam';
+        }
+
+        function toggleProjectorWebcam() {
+            const nextState = !webcamActive;
+            renderCameraPip({
+                ...currentCamConfig,
+                enabled: nextState
+            });
+        }
+
+        function renderCameraPip(cam) {
+            const pip = document.getElementById('stageCameraPip');
+            const videoEl = document.getElementById('projectorCamVideo');
+            if (!pip) return;
+
+            if (!cam || !cam.enabled) {
+                currentCamConfig = { ...currentCamConfig, enabled: false };
+                pip.classList.add('hidden');
+                stopProjectorWebcam();
+                return;
+            }
+
+            currentCamConfig = {
+                enabled: true,
+                position: cam.position || currentCamConfig.position || 'bottom-right',
+                size: cam.size || currentCamConfig.size || 'md',
+                mirrored: cam.mirrored !== false
+            };
+
+            const posMap = {
+                'bottom-right': 'bottom-5 right-5',
+                'bottom-left': 'bottom-5 left-5',
+                'top-right': 'top-5 right-5',
+                'top-left': 'top-5 left-5'
+            };
+            const sizeMap = {
+                sm: 'w-48 h-32',
+                md: 'w-64 h-44',
+                lg: 'w-80 h-56'
+            };
+
+            pip.className = `fixed z-40 ${sizeMap[currentCamConfig.size] || 'w-64 h-44'} rounded-2xl bg-slate-900/95 border-2 border-indigo-400/80 shadow-2xl overflow-hidden flex flex-col ${posMap[currentCamConfig.position] || 'bottom-5 right-5'}`;
+            pip.classList.remove('hidden');
+
+            if (videoEl) {
+                if (currentCamConfig.mirrored) {
+                    videoEl.classList.add('-scale-x-100');
+                } else {
+                    videoEl.classList.remove('-scale-x-100');
+                }
+            }
+
+            const metaEl = document.getElementById('camMetaLabel');
+            if (metaEl) {
+                metaEl.textContent = `${currentCamConfig.position} · ${currentCamConfig.size}`;
+            }
+
+            startProjectorWebcam();
+        }
+
+        function spawnFloatingReaction(rx) {
+            if (!rx || !rx.emoji) return;
+            if (typeof rx.totalReactions === 'number') {
+                document.getElementById('projectorReactionTotal').textContent = rx.totalReactions;
+            }
+            const overlay = document.getElementById('reactionOverlay');
+            const item = document.createElement('div');
+            item.className = 'projector-reaction-item flex items-center gap-1.5 bg-slate-900/80 border border-slate-700/80 px-3 py-1.5 rounded-full shadow-lg';
+            const leftPct = 10 + Math.random() * 80;
+            item.style.left = `${leftPct}%`;
+            item.innerHTML = `<span class="text-2xl">${escapeHtml(rx.emoji)}</span><span class="text-[11px] font-semibold text-slate-200">${escapeHtml(rx.authorName || '')}</span>`;
+            overlay.appendChild(item);
+            setTimeout(() => item.remove(), 2250);
+        }
+
+        function renderTopQuestions(questions) {
+            const spotlightCard = document.getElementById('projectorSpotlightCard');
+            const pinnedQ = Array.isArray(questions) ? questions.find(q => q.pinned) : null;
+            if (pinnedQ) {
+                spotlightCard.classList.remove('hidden');
+                document.getElementById('spotlightAuthorLabel').textContent = pinnedQ.authorName || pinnedQ.author || 'Ẩn danh';
+                document.getElementById('spotlightQuestionBody').textContent = pinnedQ.content || pinnedQ.text || '';
+                const replyEl = document.getElementById('spotlightReplyBody');
+                if (pinnedQ.reply) {
+                    replyEl.classList.remove('hidden');
+                    replyEl.textContent = `💡 Trả lời: ${pinnedQ.reply}`;
+                } else {
+                    replyEl.classList.add('hidden');
+                }
+            } else {
+                spotlightCard.classList.add('hidden');
+            }
+
+            const listEl = document.getElementById('topQuestionsList');
+            const top = [...(questions || [])]
+                .sort((a, b) => (b.votes || 0) - (a.votes || 0))
+                .slice(0, 6);
+
+            if (top.length === 0) {
+                listEl.innerHTML = '<p class="text-slate-500 text-sm italic">Chưa có câu hỏi nào...</p>';
+                return;
+            }
+
+            listEl.innerHTML = top.map((q, idx) => `
+                <div class="bg-slate-950/70 border ${q.pinned ? 'border-amber-400/70' : 'border-slate-800'} rounded-xl p-3 flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="flex items-center gap-2 text-xs text-indigo-300 font-semibold mb-0.5">
+                            <span>#${idx + 1}</span>
+                            <span class="truncate">${escapeHtml(q.authorName || q.author || 'Ẩn danh')}</span>
+                            ${q.answered ? '<span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300">✅ Đã trả lời</span>' : ''}
+                        </div>
+                        <p class="text-sm text-slate-100 font-medium break-words">${escapeHtml(q.content || q.text || '')}</p>
+                    </div>
+                    <div class="bg-indigo-500/15 border border-indigo-400/30 text-indigo-300 px-2.5 py-1 rounded-lg font-mono font-bold text-sm shrink-0">
+                        ▲ ${q.votes || 0}
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function renderRubricChart(summary) {
+            if (!summary || !summary.averages) return;
+            document.getElementById('rubricLockedBanner').classList.add('hidden');
+            document.getElementById('rubricChartSection').classList.remove('hidden');
+            document.getElementById('rubricVotesBadge').textContent = `${summary.totalVotes || 0} phiếu · TB: ${summary.averages.overall ?? 0}★`;
+
+            const avg = summary.averages;
+            const dataValues = [
+                avg.content || 0,
+                avg.presentation || 0,
+                avg.demo || 0,
+                avg.qa || 0
+            ];
+
+            const ctx = document.getElementById('rubricBarChart').getContext('2d');
+            if (rubricChart) {
+                rubricChart.data.datasets[0].data = dataValues;
+                rubricChart.update();
+                return;
+            }
+
+            rubricChart = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['1. Nội dung', '2. Trình bày', '3. Sản phẩm/Demo', '4. Phản biện'],
+                    datasets: [{
+                        label: 'Điểm trung bình (0 - 5 sao)',
+                        data: dataValues,
+                        backgroundColor: ['#6366f1', '#10b981', '#f59e0b', '#ec4899'],
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 5,
+                            ticks: { stepSize: 1, color: '#94a3b8' },
+                            grid: { color: 'rgba(148,163,184,0.12)' }
+                        },
+                        x: {
+                            ticks: { color: '#cbd5e1' },
+                            grid: { display: false }
+                        }
+                    },
+                    plugins: {
+                        legend: { labels: { color: '#e2e8f0' } }
+                    }
+                }
+            });
+        }
+
+        function renderProjectorLeaderboard(leaderboard) {
+            const el = document.getElementById('projectorLeaderboardList');
+            if (!Array.isArray(leaderboard) || leaderboard.length === 0) {
+                el.innerHTML = '<p class="text-xs text-slate-500 italic">Chưa có nhóm nào.</p>';
+                return;
+            }
+            el.innerHTML = leaderboard.map(g => `
+                <div class="flex items-center justify-between bg-slate-950/70 border border-slate-800 rounded-xl px-3 py-2 text-xs">
+                    <div class="min-w-0">
+                        <span class="font-extrabold text-amber-300">#${g.rank}</span>
+                        <span class="font-bold text-white ml-1">${escapeHtml(g.name)}</span>
+                        <p class="text-[11px] text-slate-400 truncate">${escapeHtml(g.topic || '')}</p>
+                    </div>
+                    <div class="text-right font-mono shrink-0 ml-2">
+                        <span class="font-bold text-emerald-400 block">${g.weightedScore ?? 0}★</span>
+                        <span class="text-[10px] text-slate-400">${g.totalVotes || 0} phiếu</span>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function escapeHtml(text) {
+            return text
+                ? String(text)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                : '';
+        }
+    </script>
+</body>
+</html>
