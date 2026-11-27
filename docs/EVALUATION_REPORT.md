@@ -20,6 +20,8 @@ npm test
 | 4 | Chấm điểm Rubric 4 tiêu chí (1–5 sao) & công bố biểu đồ tổng hợp (`rating.publish`) | ✅ PASS |
 | 5 | Đồng bộ đồng hồ 15 phút (`timer.sync`), khôi phục tin bị lỡ (`sync.resume`) & xuất CSV UTF-8 | ✅ PASS |
 | 6 | Đồng bộ trạng thái Khóa/Mở (`question.toggle`, `rating.toggle`) & khảo sát CSAT (`survey.submit`) | ✅ PASS |
+| 7 | Đồng bộ Slide thuyết trình (`slide.sync`), Con trỏ Laser đỏ (`slide.laser`) & Camera Diễn giả PiP (`stage.camera`) | ✅ PASS |
+| 8 | Đa Nhóm thuyết trình & Bảng xếp hạng (`group.switch`), Trọng số điểm GV/SV, Ghi chú phản biện (`question.reply`), Cộng giờ & Thả cảm xúc (`reaction.send`) | ✅ PASS |
 
 ---
 

@@ -9,31 +9,32 @@ Dự án thuộc **Bài tập nhóm số 3**: Xây dựng ứng dụng hoàn thi
 
 | STT | Họ và Tên | Vai trò chính | Module phụ trách |
 |:---:|:---|:---|:---|
-| 1 | **Hồ Ngọc Tiến** (`@ngoctienh`) | **Backend & Hạ tầng mạng** | Xây dựng WebSocket Server (RFC 6455), quản lý phòng PIN 4 số, đồng bộ thời gian (Timer), Heartbeat, Rate Limit, Test tải 100 CCU, Docker & CI (`server/`) |
-| 2 | **Phạm Văn Dũng** (`@chovang1123`) | **Frontend Student** | Giao diện Mobile-first cho sinh viên: Nhập Họ tên/MSSV & mã PIN, Đặt câu hỏi Q&A (ẩn danh), Upvote câu hỏi, Chấm điểm Rubric 1–5 sao, Tự động kết nối lại (`client/src/views/student/`) |
-| 3 | **Nguyễn Hải Long** (`@longnh474-jpg`) | **Frontend Host/Projector & Tài liệu** | Màn hình Projector (QR động, đếm ngược 15 phút đổi màu cảnh báo, Top câu hỏi, Biểu đồ Chart.js), Host Dashboard (điều phối, công bố kết quả, khảo sát CSAT, xuất CSV) & Tài liệu (`client/src/views/host/`, `projector/`, `docs/`) |
+| 1 | **Hồ Ngọc Tiến** (`@ngoctienh`) | **Backend & Hạ tầng mạng** | Xây dựng WebSocket Server (RFC 6455), quản lý phòng PIN 4 số, Đa nhóm & Bảng xếp hạng (`leaderboard`), Trọng số điểm GV/SV, Đồng bộ Slide & Con trỏ Laser (`slide.sync`, `slide.laser`), Điều khiển Camera PiP (`stage.camera`), Chia pha Timer & Cộng/trừ giờ, Thả cảm xúc (`reaction.send`), Heartbeat, Rate Limit, Test tải 100 CCU, Docker & CI (`server/`) |
+| 2 | **Phạm Văn Dũng** (`@chovang1123`) | **Frontend Student** | Giao diện Mobile Companion cho sinh viên: Quét QR/PIN, Xem Slide đồng bộ & Con trỏ Laser trực tiếp trên điện thoại, Đo Ping RTT (`ms`) & Khôi phục gói tin `sync.resume`, Hỏi đáp Q&A gắn Tag + Tìm kiếm + Lọc + Banner Spotlight, Chấm Rubric đa nhóm kèm nhận xét phản biện, Thanh thả cảm xúc bay & Popup khảo sát CSAT (`client/src/views/student/`) |
+| 3 | **Nguyễn Hải Long** (`@longnh474-jpg`) | **Frontend Host/Projector & Tài liệu** | Màn hình Projector (Sân khấu Slide đồng bộ + Laser đỏ, Khung Webcam Diễn giả PiP thật qua `getUserMedia`, Mưa Emoji bay, Spotlight câu hỏi ghim, Đồng hồ 15 phút chia pha, Biểu đồ `Chart.js` & Bảng xếp hạng nhóm), Host Dashboard (Tải/gỡ file `.PPTX` bằng `JSZip`, Bàn di Laser, Điều khiển Camera/Timer/Đa nhóm, Chấm điểm GV trọng số 50%, Ghi chú trả lời Q&A, Đẩy khảo sát CSAT, Xuất CSV) & Tài liệu (`client/src/views/host/`, `projector/`, `docs/`) |
 
 ---
 
 ## 🚀 Các tính năng chính
 
-1. **Khán giả / Sinh viên (`/student` — Mobile Web):**
-   - Quét mã QR hoặc nhập Họ tên, MSSV và mã PIN 4 số để vào phòng nhanh chóng.
-   - Gửi câu hỏi chất vấn (hiển thị tên thật hoặc ẩn danh), bấm Upvote đẩy câu hỏi hay lên đầu theo thời gian thực.
-   - Chấm điểm bài thuyết trình từ 1–5 sao theo 4 tiêu chí (*Nội dung, Trình bày, Demo thực tế, Trả lời phản biện*).
-   - Đèn báo trạng thái mạng (Xanh / Vàng / Đỏ) và tự động kết nối lại khi mạng 4G/WiFi chập chờn.
+1. **Khán giả / Sinh viên (`/student` — Mobile Interactive Companion):**
+   - Quét mã QR hoặc nhập Họ tên, MSSV và mã PIN 4 số để vào phòng; thay thế toàn bộ `alert()` bằng **Toast Notification** mượt mà.
+   - **Khung Xem Slide Đồng Bộ & Con Trỏ Laser Đỏ Realtime:** Tự động lật trang Slide theo diễn giả và hiển thị đốm sáng Laser đỏ di chuyển theo thời gian thực ngay trên màn hình điện thoại.
+   - **Hỏi đáp Q&A Thông minh & Spotlight:** Chọn Tag phân loại câu hỏi (Chất vấn, Góp ý, Lỗi Demo, Kỹ thuật), bộ đếm ký tự `0/300`, thanh tìm kiếm và 3 tab lọc (Nhiều Vote, Mới nhất, Đã trả lời). Hiển thị **Banner Spotlight** khi câu hỏi đang được ghim phản biện kèm nội dung trả lời từ nhóm.
+   - **Chấm điểm Rubric Đa Nhóm & Nhận xét:** Tự động chuyển tên nhóm đang thuyết trình & reset phiếu sao khi sang nhóm mới; chấm 1–5 sao theo 4 tiêu chí kèm ô nhập nhận xét ưu/nhược điểm.
+   - **Tương tác Khán giả & Giám sát Mạng RFC 6455:** Thanh thả biểu tượng cảm xúc trực tiếp lên màn chiếu; Popup khảo sát CSAT tự động bật khi Host kích hoạt; hiển thị trực tiếp độ trễ `Online · RTT ms · Seq #` và tự động kéo bù sự kiện bị lỡ qua `sync.resume` khi mạng chập chờn.
 
-2. **Màn hình Chiếu Sân Khấu (`/projector` — Projector View):**
-   - Giao diện Full-screen Dark mode chiếu trực tiếp trên bục giảng.
-   - Tự động sinh mã QR kích thước lớn trỏ thẳng tới phòng sinh viên.
-   - Đồng hồ đếm ngược 15 phút đồng bộ theo giờ máy chủ: tự động chuyển **Vàng** khi còn `< 3 phút` và **Đỏ nhấp nháy** khi còn `< 1 phút`.
-   - Hiển thị Top câu hỏi nhiều lượt Upvote nhất (ưu tiên câu hỏi được Host ghim) và bung biểu đồ cột `Chart.js` khi Host công bố điểm.
+2. **Màn hình Chiếu Sân Khấu (`/projector` — Stage Projector View):**
+   - Giao diện Full-screen Dark mode chiếu trực tiếp trên bục giảng với mã QR tự động và tiêu đề Nhóm đang thuyết trình.
+   - **Sân khấu Slide Đồng Bộ + Con Trỏ Laser Đỏ + Khung Webcam Diễn Giả (PiP):** Trình chiếu trực tiếp nội dung Slide (hoặc file `.PPTX` do Host tải lên), hiển thị đốm sáng Laser đỏ thời gian thực và khung nổi **Camera Diễn giả (Picture-in-Picture)** thu hình trực tiếp từ Webcam (`getUserMedia`).
+   - **Đồng hồ Đếm ngược 15 phút Chia Pha:** Hiển thị nhãn Pha hiện tại (*Pha: Trình bày* / *Pha: Phản biện*), tự động chuyển **Vàng** khi còn `< 3 phút` và **Đỏ nhấp nháy** khi còn `< 1 phút`.
+   - **Khung Spotlight Phản Biện, Tương tác Cảm xúc & Bảng Xếp Hạng Đa Nhóm:** Làm nổi bật câu hỏi đang được ghim trả lời, hiệu ứng biểu tượng cảm xúc bay từ đáy màn hình lên, biểu đồ cột `Chart.js` và **Bảng Xếp Hạng Các Nhóm Thuyết Trình**.
 
 3. **Bảng Điều Khiển Quản Trị (`/host` — Host Dashboard):**
-   - Xác thực quyền điều phối bằng `hostToken`.
-   - Theo dõi trực tiếp số thiết bị online, số câu hỏi chờ và số phiếu chấm Rubric.
-   - Nút Khóa/Mở nhận câu hỏi & chấm điểm; Ghim / Đánh dấu đã trả lời / Xóa câu hỏi; Bắt đầu / Tạm dừng / Đặt lại đồng hồ 15 phút.
-   - Nút **🚀 Mở Kết Quả** công bố biểu đồ điểm trung bình lên màn chiếu, khảo sát độ hài lòng CSAT và xuất báo cáo **CSV/Excel** chuẩn tiếng Việt UTF-8.
+   - Tạo phòng mới mã PIN 4 số hoặc kết nối quản trị bằng `hostToken`; theo dõi trực tiếp số thiết bị online, số lượt đỉnh (Peak), tổng cảm xúc, câu hỏi chờ, phiếu Rubric và điểm khảo sát CSAT.
+   - **Tải trực tiếp file PowerPoint (`.PPTX`), Bàn di Laser & Điều khiển Camera PiP:** Tích hợp `JSZip` đọc và tách tự động từng trang slide từ file `.pptx` trên máy tính để phát đồng bộ qua WebSocket; nút gỡ PPT (hoặc tự động gỡ khi đổi nhóm); bàn di chuột chiếu con trỏ Laser (`0..1`) và điều khiển bật/tắt, chọn góc hiển thị khung Camera Diễn giả.
+   - **Quản lý Đa Nhóm & Chấm điểm Giảng viên (Trọng số 50%):** Thêm/chuyển đổi giữa các nhóm thuyết trình, bảng chấm điểm Rubric dành riêng cho Giảng viên (kết hợp trọng số 50% GV + 50% SV) và bảng xếp hạng trực tiếp.
+   - **Điều phối Sân khấu Toàn diện:** Chuyển pha đồng hồ (*Trình bày* / *Phản biện*) và cộng/trừ `+1p` / `-1p` ngay khi đang đếm; Ghim Spotlight / Ghi chú câu trả lời phản biện / Đánh dấu đã trả lời / Xóa câu hỏi; Nút **Đẩy Survey** mở popup CSAT xuống toàn bộ điện thoại sinh viên và xuất báo cáo **CSV/Excel** chuẩn tiếng Việt UTF-8 BOM.
 
 ---
 
