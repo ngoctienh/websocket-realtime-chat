@@ -909,10 +909,20 @@ class RoomManager {
 
     const st = room.slideState;
 
-    if (Array.isArray(slides) && slides.length > 0) {
-      st.slides = slides;
-      st.total = slides.length;
-      st.page = 1;
+    if (Array.isArray(slides)) {
+      if (slides.length > 0) {
+        st.slides = slides;
+        st.total = slides.length;
+        st.page = 1;
+        st.isCustomDeck = true;
+      } else if (st.isCustomDeck) {
+        // Khi Host bấm "Gỡ PPT" (gửi slides: []), khôi phục về bộ 5 Slide mặc định của hệ thống
+        st.slides = DEFAULT_SLIDE_DECK.map((s) => ({ ...s }));
+        st.total = DEFAULT_SLIDE_DECK.length;
+        st.page = 1;
+        st.title = 'Bộ Slide Thuyết Trình';
+        st.isCustomDeck = false;
+      }
     }
 
     if (typeof total === 'number' && total >= 1) {
@@ -941,6 +951,7 @@ class RoomManager {
       ok: true,
       slideState: {
         ...st,
+        slides: st.isCustomDeck ? st.slides : [],
         currentSlide: currentSlideObj
       }
     };
@@ -1107,6 +1118,7 @@ class RoomManager {
       groups: groupsPayload,
       slide: {
         ...room.slideState,
+        slides: room.slideState.isCustomDeck ? room.slideState.slides : [],
         currentSlide: currentSlideObj
       },
       camera: { ...room.cameraState },

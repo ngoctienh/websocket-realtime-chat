@@ -509,7 +509,10 @@ function createClassLiveServer(options = {}) {
         roomManager.broadcastToRoom(
           ws.currentRoom,
           MessageTypes.QUESTION_BROADCAST,
-          addRes.question
+          {
+            ...addRes.question,
+            questions: roomManager.getSortedQuestions(ws.currentRoom)
+          }
         );
 
         roomManager.broadcastToRoom(
