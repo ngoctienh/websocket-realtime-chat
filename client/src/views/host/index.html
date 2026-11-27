@@ -191,19 +191,25 @@
                         <button type="button" onclick="syncSlide('next')" class="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold">Trang sau ▶</button>
                     </div>
 
-                    <!-- Bàn di con trỏ Laser chuẩn hóa (0..1) -->
+                    <!-- Khung xem trực tiếp Slide + Bàn di con trỏ Laser chuẩn hóa (0..1) -->
                     <div>
                         <div class="flex items-center justify-between mb-1">
-                            <span class="text-[11px] font-semibold text-slate-600">🔴 Bàn di chiếu Laser lên màn hình Projector (Di chuột hoặc click)</span>
-                            <button type="button" onclick="toggleLaser(false)" class="text-[10px] font-bold text-rose-600 hover:underline">Tắt Laser</button>
+                            <span class="text-[11px] font-semibold text-slate-600">🔴 Màn hình Slide & Bàn di Laser (Đọc nội dung & di chuột để chỉ Laser lên Projector)</span>
+                            <div class="flex items-center gap-2">
+                                <span id="laserCoordsLabel" class="text-[10px] font-mono text-slate-400">Laser: Tắt</span>
+                                <button type="button" onclick="toggleLaser(false)" class="text-[10px] font-bold text-rose-600 hover:underline">Tắt Laser</button>
+                            </div>
                         </div>
                         <div id="laserPad"
                              onmousemove="handleLaserMove(event)"
                              onmouseleave="toggleLaser(false)"
                              onclick="handleLaserMove(event)"
-                             class="relative h-24 w-full rounded-xl bg-slate-900 border border-slate-700 overflow-hidden cursor-crosshair select-none flex items-center justify-center">
-                            <span class="text-[11px] font-mono text-slate-500 pointer-events-none">Vùng chiếu Laser (0..1) · <span id="laserCoordsLabel">Tắt</span></span>
-                            <div id="laserDotPreview" class="hidden w-3.5 h-3.5 rounded-full bg-rose-500 ring-4 ring-rose-500/30 -translate-x-1/2 -translate-y-1/2 absolute pointer-events-none"></div>
+                             class="relative min-h-[210px] w-full rounded-xl bg-slate-950 border border-slate-700 p-4 overflow-hidden cursor-crosshair select-none flex flex-col justify-center">
+                            <span id="hostPreviewSubLabel" class="text-[10px] font-semibold text-indigo-400 uppercase tracking-wider mb-0.5 pointer-events-none">Bài tập nhóm số 3 • Môn Lập trình Mạng</span>
+                            <h4 id="hostPreviewHeading" class="text-sm md:text-base font-extrabold text-white leading-snug mb-1.5 pointer-events-none">ClassLive Pro — Kiến trúc Giao thức WebSocket (RFC 6455)</h4>
+                            <p id="hostPreviewBody" class="text-xs text-slate-300 leading-relaxed mb-2 pointer-events-none">Hệ thống Hỏi đáp Realtime, Chấm điểm Rubric Đa Nhóm, Đồng bộ Slide & Con trỏ Laser thời gian thực.</p>
+                            <ul id="hostPreviewBullets" class="space-y-1 text-[11px] text-slate-300 list-disc pl-4 pointer-events-none"></ul>
+                            <div id="laserDotPreview" class="hidden w-4 h-4 rounded-full bg-rose-500 shadow-[0_0_12px_4px_rgba(244,63,94,0.8)] border-2 border-white -translate-x-1/2 -translate-y-1/2 absolute pointer-events-none z-20"></div>
                         </div>
                     </div>
 
@@ -317,6 +323,64 @@
         let lastToastAt = 0;
 
         // Trạng thái slide PPT trên Host
+        const DEFAULT_HOST_SLIDES = [
+            {
+                page: 1,
+                title: 'ClassLive Pro — Kiến trúc Giao thức WebSocket (RFC 6455)',
+                subtitle: 'Bài tập nhóm số 3 • Môn Lập trình Mạng',
+                content: 'Hệ thống Hỏi đáp Realtime, Chấm điểm Rubric Đa Nhóm, Đồng bộ Slide & Con trỏ Laser thời gian thực.',
+                bullets: [
+                    'Kết nối song công toàn phần (Full-Duplex) trên một kết nối TCP duy nhất (HTTP 101 Upgrade)',
+                    'Độ trễ P95 < 30ms cho 100 kết nối đồng thời (100 CCU)',
+                    'Tự động khôi phục gói tin bị lỡ qua Sequence ID (sync.resume)'
+                ]
+            },
+            {
+                page: 2,
+                title: 'Cơ chế Đồng bộ Thời gian & Chống Trôi Giờ (Clock Drift)',
+                subtitle: 'Server-Authoritative Synced Timer & Phase Control',
+                content: 'Đồng hồ đếm ngược được tính toán từ mốc Date.now() của Server, chia 2 pha: Trình bày & Phản biện.',
+                bullets: [
+                    'Cảnh báo tự động đổi màu: Xanh (> 3p) → Vàng (< 3p) → Đỏ nhấp nháy (< 1p)',
+                    'Hỗ trợ cộng/trừ thời gian trực tiếp (+1 phút / -1 phút) ngay khi đang chạy',
+                    'Đồng bộ tức thời tới Projector, Host và thiết bị Sinh viên'
+                ]
+            },
+            {
+                page: 3,
+                title: 'Đồng bộ Slide & Con trỏ Laser Thời Gian Thực',
+                subtitle: 'Live Slide Sync & High-Frequency Laser Pointer',
+                content: 'Giúp người xem theo dõi trực tiếp từng trang Slide và điểm chỉ Laser trên sân khấu.',
+                bullets: [
+                    'Tách biệt Control Plane (lật trang) và Ephemeral Stream (tọa độ Laser tần suất cao)',
+                    'Tọa độ Laser chuẩn hóa (x, y ∈ [0..1]) tương thích mọi kích thước màn hình',
+                    'Điều khiển từ xa khung Camera Diễn giả (PiP) trên màn chiếu Projector'
+                ]
+            },
+            {
+                page: 4,
+                title: 'Chấm điểm Rubric Đa Nhóm & Trọng số Giảng viên / Sinh viên',
+                subtitle: 'Weighted Peer-Review & Live Leaderboard',
+                content: 'Đánh giá khách quan theo 4 tiêu chí kèm nhận xét phản biện và bảng xếp hạng các nhóm.',
+                bullets: [
+                    '4 tiêu chí: Nội dung, Trình bày, Sản phẩm/Demo, Trả lời phản biện',
+                    'Tính điểm trọng số: Điểm Giảng viên (Host) + Điểm Hội đồng Sinh viên',
+                    'Chống vote lặp ẩn danh bằng mã băm Salted SHA-256 theo từng phòng'
+                ]
+            },
+            {
+                page: 5,
+                title: 'Bảo mật, Chống Spam & Kiểm thử Tải 100 CCU',
+                subtitle: 'Sliding-Window Rate Limiting & Xuất Báo Cáo CSV',
+                content: 'Đảm bảo ổn định trên mạng WiFi / 4G giảng đường và xuất báo cáo chuẩn UTF-8 BOM.',
+                bullets: [
+                    'Sliding-Window Rate Limiter: tối đa 3 câu hỏi/phút, chống flood frame',
+                    'Lọc từ ngữ không phù hợp & xác thực quyền Host bằng hostToken',
+                    'Xuất báo cáo tổng hợp ra file CSV/Excel không lỗi font tiếng Việt'
+                ]
+            }
+        ];
+
         let hostSlides = [];
         let hostCurrentPage = 1;
         let hostDeckTitle = 'Slide mặc định hệ thống';
@@ -960,6 +1024,30 @@
             }
 
             document.getElementById('hostSlidePageBadge').textContent = `Slide ${hostCurrentPage} / ${total}`;
+            renderHostSlidePreview();
+        }
+
+        function renderHostSlidePreview() {
+            const activeDeck = isCustomPptLoaded && hostSlides.length > 0 ? hostSlides : DEFAULT_HOST_SLIDES;
+            const slideObj = activeDeck[(hostCurrentPage - 1) % activeDeck.length] || activeDeck[0] || {};
+
+            const subEl = document.getElementById('hostPreviewSubLabel');
+            const headEl = document.getElementById('hostPreviewHeading');
+            const bodyEl = document.getElementById('hostPreviewBody');
+            const bulletsEl = document.getElementById('hostPreviewBullets');
+
+            if (subEl) subEl.textContent = slideObj.subtitle || `Slide ${hostCurrentPage}`;
+            if (headEl) headEl.textContent = slideObj.title || `Trang thuyết trình #${hostCurrentPage}`;
+            if (bodyEl) bodyEl.textContent = slideObj.content || '';
+            if (bulletsEl) {
+                if (Array.isArray(slideObj.bullets) && slideObj.bullets.length > 0) {
+                    bulletsEl.classList.remove('hidden');
+                    bulletsEl.innerHTML = slideObj.bullets.map(b => `<li>${escapeHtml(b)}</li>`).join('');
+                } else {
+                    bulletsEl.classList.add('hidden');
+                    bulletsEl.innerHTML = '';
+                }
+            }
         }
 
         function broadcastCurrentSlideState(action = 'goto') {
@@ -968,6 +1056,7 @@
             const currentSlide = isCustomPptLoaded ? (hostSlides[hostCurrentPage - 1] || null) : null;
 
             document.getElementById('hostSlidePageBadge').textContent = `Slide ${hostCurrentPage} / ${total}`;
+            renderHostSlidePreview();
 
             sendHostMsg('slide.sync', {
                 action,
